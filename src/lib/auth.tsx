@@ -21,13 +21,32 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [player, setPlayer] = useState<Player | null>(null)
   const [ready, setReady] = useState(false)
 
+  /**
+   * Loads the signed-in user's profile, creating one if it is missing. An
+   * account can exist in Supabase Auth without a profile row — a sign-up
+   * interrupted between signUp and claim_account, or a login predating this
+   * schema. Repairing it here means "signed in but no profile" is never a
+   * state the UI has to render.
+   */
   const loadPlayer = useCallback(async (uid: string | undefined) => {
     if (!uid) {
       setPlayer(null)
       return
     }
     const { data } = await supabase.from('players').select('*').eq('user_id', uid).maybeSingle()
-    setPlayer((data as Player) ?? null)
+    if (data) {
+      setPlayer(data as Player)
+      return
+    }
+
+    const { error } = await supabase.rpc('ensure_account')
+    if (error) {
+      setPlayer(null)
+      return
+    }
+    const { data: repaired } = await supabase
+      .from('players').select('*').eq('user_id', uid).maybeSingle()
+    setPlayer((repaired as Player) ?? null)
   }, [])
 
   useEffect(() => {

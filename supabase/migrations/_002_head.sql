@@ -123,6 +123,53 @@ create unique index if not exists players_name_key on public.players (lower(btri
 create index if not exists players_team_idx on public.players (team_id);
 
 -- ---------------------------------------------------------------------------
+-- 2b. No more draws — every result has a winner
+-- ---------------------------------------------------------------------------
+
+-- The standings view loses its "drawn" column, and CREATE OR REPLACE VIEW
+-- cannot drop one, so it has to go first. Nothing depends on it but function
+-- bodies, which are recreated below.
+drop view if exists public.standings cascade;
+
+-- A drawn result can no longer be represented. Any that already exist are
+-- voided rather than deleted: the scores stay on the row, they simply stop
+-- counting, and an admin can re-enter them with a winner.
+do $$
+declare m record; n int := 0;
+begin
+  for m in
+    select mt.id, ta.name as team_a, tb.name as team_b, mt.score_a, mt.score_b
+      from public.matches mt
+      left join public.teams ta on ta.id = mt.team_a
+      left join public.teams tb on tb.id = mt.team_b
+     where mt.status = 'confirmed'
+       and mt.score_a is not null and mt.score_b is not null
+       and mt.score_a = mt.score_b
+  loop
+    update public.matches
+       set status = 'voided',
+           winner_id = null,
+           admin_note = 'Voided by the no-draws migration — replay it or re-enter with a winner.',
+           updated_at = now()
+     where id = m.id;
+    n := n + 1;
+    raise notice 'Voided drawn result: % %-% %', m.team_a, m.score_a, m.score_b, m.team_b;
+  end loop;
+
+  if n = 0 then
+    raise notice 'No drawn results found — nothing to void.';
+  else
+    raise notice '% drawn result(s) voided. Replay them, or re-enter each from Admin.', n;
+  end if;
+end $$;
+
+do $$ begin
+  alter table public.matches add constraint no_drawn_results check (
+    status <> 'confirmed' or score_a is null or score_b is null or score_a <> score_b
+  );
+exception when duplicate_object then null; end $$;
+
+-- ---------------------------------------------------------------------------
 -- 3. Drop what this version replaces
 -- ---------------------------------------------------------------------------
 

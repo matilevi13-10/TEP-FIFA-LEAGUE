@@ -48,7 +48,7 @@ do $$ declare mid uuid; t text; begin
   begin
     perform submit_playoff_result(mid, 2, 2);
     raise exception 'TEST FAILED: a playoff draw was accepted';
-  exception when sqlstate 'P0001' then raise notice 'ok: playoff draw rejected'; end;
+  exception when sqlstate 'P0001' then raise notice 'ok: playoff level score rejected'; end;
 end $$;
 
 \echo '=== 19. play the bracket to a champion; results reach the chat ==='

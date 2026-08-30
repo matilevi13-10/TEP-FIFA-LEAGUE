@@ -98,7 +98,7 @@ export function Home() {
             <div className="card">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
                 <Stat label="Rank" value={me ? ordinal(me.rank) : '—'} accent />
-                <Stat label="Record" value={me ? `${me.won}-${me.drawn}-${me.lost}` : '0-0-0'} />
+                <Stat label="Record" value={me ? `${me.won}-${me.lost}` : '0-0'} />
                 <Stat label="Points" value={me ? String(me.points) : '0'} />
               </div>
 
@@ -180,7 +180,7 @@ export function Home() {
                 League Table
               </h1>
               <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
-                {settings?.phase === 'league' ? 'Win 3 · Draw 1 · Loss 0' : 'League phase closed'}
+                {settings?.phase === 'league' ? 'Win 3 · Loss 0' : 'League phase closed'}
               </div>
             </div>
             <span className="pill pill--live">Live</span>
@@ -197,7 +197,6 @@ export function Home() {
                 <span>Team</span>
                 <span className="tbl__cell">P</span>
                 <span className="tbl__cell">W</span>
-                <span className="tbl__cell">T</span>
                 <span className="tbl__cell">L</span>
                 <span className="tbl__cell">GF</span>
                 <span className="tbl__cell">GA</span>
@@ -218,13 +217,12 @@ export function Home() {
                     <span style={{ minWidth: 0 }}>
                       <span className="tbl__name">{row.name}</span>
                       <span className="tbl__sub">
-                        {row.won}-{row.drawn}-{row.lost} · {row.goals_for}:{row.goals_against} ·{' '}
+                        {row.won}W-{row.lost}L · {row.goals_for}:{row.goals_against} ·{' '}
                         {row.goal_difference > 0 ? '+' : ''}{row.goal_difference}
                       </span>
                     </span>
                     <span className="tbl__cell">{row.played}</span>
                     <span className="tbl__cell">{row.won}</span>
-                    <span className="tbl__cell">{row.drawn}</span>
                     <span className="tbl__cell">{row.lost}</span>
                     <span className="tbl__cell">{row.goals_for}</span>
                     <span className="tbl__cell">{row.goals_against}</span>
@@ -285,7 +283,7 @@ function PendingCard({
             {match.phase === 'playoff' ? 'Playoff game' : 'League game'} · {timeAgo(match.created_at)}
           </div>
         </div>
-        <span className="pill pill--accent">{won ? 'You won' : myScore === theirScore ? 'Draw' : 'You lost'}</span>
+        <span className="pill pill--accent">{won ? 'You won' : 'You lost'}</span>
       </div>
 
       <div className="center" style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-0.03em', marginBottom: 4 }}>

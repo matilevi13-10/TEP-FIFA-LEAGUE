@@ -34,15 +34,16 @@ const LeagueContext = createContext<LeagueValue | null>(null)
 
 /**
  * Mirrors the `standings` view in schema.sql: confirmed league games only,
- * ordered by points, then goal difference, then goals scored, then name.
- * Computed here too so the table reacts the instant realtime fires.
+ * three points a win, ordered by points, then goal difference, then goals
+ * scored, then name. Computed here too so the table reacts the instant
+ * realtime fires.
  */
 export function computeStandings(teams: Team[], matches: Match[]): Standing[] {
   const table = new Map<string, Standing>()
   for (const team of teams) {
     if (!team.is_active) continue
     table.set(team.id, {
-      team_id: team.id, name: team.name, played: 0, won: 0, drawn: 0, lost: 0,
+      team_id: team.id, name: team.name, played: 0, won: 0, lost: 0,
       goals_for: 0, goals_against: 0, goal_difference: 0, points: 0, rank: 0,
     })
   }
@@ -60,8 +61,8 @@ export function computeStandings(teams: Team[], matches: Match[]): Standing[] {
       row.played += 1
       row.goals_for += gf
       row.goals_against += ga
+      // No draws: every confirmed result is a win for somebody.
       if (gf > ga) { row.won += 1; row.points += 3 }
-      else if (gf === ga) { row.drawn += 1; row.points += 1 }
       else row.lost += 1
     }
   }

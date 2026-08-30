@@ -13,7 +13,7 @@ import { Bracket } from './screens/Bracket'
 import { Admin } from './screens/Admin'
 
 export function App() {
-  const { ready, session, player, signOut } = useAuth()
+  const { ready, session, player, signOut, reloadPlayer } = useAuth()
 
   if (!ready) {
     return (
@@ -27,15 +27,19 @@ export function App() {
 
   if (!session) return <SignIn />
 
-  // Signed in with Supabase but no player attached — a half-finished first login.
+  // The profile is created on demand in loadPlayer, so this only shows if that
+  // call could not reach Supabase at all.
   if (!player) {
     return (
       <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, padding: 'var(--gutter)' }}>
         <Logo height={40} />
-        <p className="muted center" style={{ maxWidth: 300, fontSize: 14, margin: 0 }}>
-          This login isn't attached to a player yet. Sign in again with your PIN.
+        <p className="muted center" style={{ maxWidth: 320, fontSize: 14, margin: 0 }}>
+          Couldn't finish setting up your account. Check your connection and try again.
         </p>
-        <button className="btn btn--primary" onClick={() => void signOut()}>Start over</button>
+        <div className="row" style={{ gap: 8 }}>
+          <button className="btn btn--primary" onClick={() => void reloadPlayer()}>Try again</button>
+          <button className="btn btn--ghost" onClick={() => void signOut()}>Sign out</button>
+        </div>
       </div>
     )
   }

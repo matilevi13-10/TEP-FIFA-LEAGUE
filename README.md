@@ -4,13 +4,14 @@ A 2v2 FIFA league tracker for one private group. Teams of two, $50 a team, winne
 of the playoff bracket takes the pot. Built to be used from a phone, on the couch,
 mid-argument about whether that goal counted.
 
-- **Phase 1 — League.** Every team plays a set number of games. Win 3, draw 1,
-  loss 0. Sorted on points, then goal difference, then goals scored. The table is
-  the home page.
+- **Phase 1 — League.** Every team plays a set number of games. **Win 3, loss 0 —
+  there are no draws.** A level score cannot be submitted, cannot be settled by an
+  admin, and cannot exist as a confirmed row in the database. Sorted on points,
+  then goal difference, then goals scored. The table is the home page.
 - **Phase 2 — Playoffs.** The admin locks the league and seeds the top 4, 8 or 16
-  into a single-elimination bracket. No draws. Whoever wins the final takes the pot.
-- **Every result needs two signatures.** The winning team submits (either team on a
-  draw), the opponent confirms. Nothing touches the table or the bracket until it is
+  into a single-elimination bracket. Whoever wins the final takes the pot.
+- **Every result needs two signatures.** The winning team submits, the opponent
+  confirms. Nothing touches the table or the bracket until it is
   confirmed. Anything disputed parks itself for the admin.
 - **A league chat.** One room, everyone in it. Confirmed results announce
   themselves, and the winning team gets one taunt per win.
@@ -66,7 +67,14 @@ Sign up with the admin address (see below) and you'll have the admin controls.
 
 Supabase Auth owns the email and password. This schema owns the **username**,
 which is the identity everyone actually sees — in the table, the chat, and on a
-team. Sign-up is username + email + password; sign-in is email + password.
+team. Sign-up is username + email + password; sign-in is email + password. That
+is the whole of it: no OAuth, no codes, no second factor.
+
+A signed-in account always has a profile. If one is ever missing — a sign-up
+interrupted halfway, or a login predating this schema — `ensure_account()`
+creates it from the email address on the next load, so "signed in but not set up"
+is not a state the app can get stuck in. An account with no team simply sees the
+league table and the Add Team form.
 
 Whoever signs up with the address in `league_settings.admin_email`
 (**matilevi13@gmail.com** by default) gets the admin controls automatically. You
@@ -160,8 +168,8 @@ the two cannot drift. After editing the schema, run
 - **Anyone with the URL can sign up.** That is what "no confirmation email" buys.
   For a private group it is usually fine; the admin can delete stray accounts from
   Admin → Players.
-- **Passwords** are Supabase Auth's business. There is no PIN and no password
-  reset in the app — use the Supabase dashboard if someone is locked out.
+- **Passwords** are Supabase Auth's business. There is no password reset inside
+  the app — use the Supabase dashboard if someone is locked out.
 - **PP Neue Montreal** is a commercial typeface from Pangram Pangram, bundled here
   in `src/fonts/`. Make sure your licence covers web use before this goes anywhere
   public.

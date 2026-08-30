@@ -78,7 +78,6 @@ export interface Standing {
   name: string
   played: number
   won: number
-  drawn: number
   lost: number
   goals_for: number
   goals_against: number

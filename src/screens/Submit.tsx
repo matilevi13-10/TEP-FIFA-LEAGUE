@@ -62,9 +62,10 @@ export function Submit() {
   const used = slotsUsed(matches, myTeam.id)
   const remaining = Math.max(0, (settings?.games_per_team ?? 0) - used)
 
-  const drawn = mine === theirs
+  const level = mine === theirs
   const lost = mine < theirs
-  const blocked = lost || (isPlayoffs && drawn)
+  // Every game has a winner, so a level score is never submittable.
+  const blocked = lost || level
   const activeOpponent = isPlayoffs ? bracketOpponent : opponent
 
   const reset = () => { setOpponent(null); setMine(0); setTheirs(0) }
@@ -202,19 +203,17 @@ export function Submit() {
         </div>
 
         <div className="center" style={{ minHeight: 40, marginTop: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          {lost ? (
+          {level ? (
+            <span style={{ fontSize: 13, color: 'var(--danger)' }}>
+              Games can't end level — play it out until somebody wins.
+            </span>
+          ) : lost ? (
             <span style={{ fontSize: 13, color: 'var(--danger)' }}>
               The winning team submits — ask {activeOpponent?.name ?? 'them'} to send this one.
             </span>
-          ) : isPlayoffs && drawn ? (
-            <span style={{ fontSize: 13, color: 'var(--danger)' }}>
-              Playoff games can't end level. Play it out.
-            </span>
           ) : (
             <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
-              {drawn
-                ? `Draw ${mine}–${theirs}. Either team can send a draw.`
-                : `You win ${mine}–${theirs}. ${activeOpponent?.name ?? 'They'} confirms it.`}
+              You win {mine}–{theirs}. {activeOpponent?.name ?? 'They'} confirms it.
             </span>
           )}
         </div>

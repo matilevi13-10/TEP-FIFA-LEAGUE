@@ -157,7 +157,7 @@ function Bubble({ message, mine }: { message: Message; mine: boolean }) {
           <div className="msg__score">{message.body}</div>
         )}
         <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>
-          {winner ? `${winner} win` : 'Draw'} · {timeAgo(message.created_at)}
+          {winner ? `${winner} win` : 'Result'} · {timeAgo(message.created_at)}
         </div>
       </div>
     )

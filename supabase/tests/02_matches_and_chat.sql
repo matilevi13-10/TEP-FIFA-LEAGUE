@@ -83,6 +83,35 @@ do $$ declare n int; begin
   raise notice 'ok: winner recorded for win/loss framing';
 end $$;
 
+\echo '=== 9b. level scores are rejected in the league phase ==='
+do $$ declare opp uuid; m uuid; begin
+  perform act_as_team('Route One');
+  select id into opp from teams where name='Gegenpress';
+  begin
+    perform submit_league_result(opp, 2, 2);
+    raise exception 'TEST FAILED: a level league score was accepted';
+  exception when sqlstate 'P0001' then raise notice 'ok: level league score rejected'; end;
+
+  -- and the admin cannot settle one level either
+  select id into m from matches where status='confirmed' and phase='league' limit 1;
+  perform act_as('Mati');
+  begin
+    perform admin_resolve_match(m, 2, 2, 'nope');
+    raise exception 'TEST FAILED: admin settled a match level';
+  exception when sqlstate 'P0001' then raise notice 'ok: admin cannot settle level'; end;
+end $$;
+
+do $$ declare a uuid; b uuid; begin
+  -- and the database refuses one even if a function ever let it through
+  select id into a from teams where name='Route One';
+  select id into b from teams where name='Catenaccio';
+  begin
+    insert into matches (phase, team_a, team_b, score_a, score_b, status)
+    values ('league', a, b, 2, 2, 'confirmed');
+    raise exception 'TEST FAILED: the table accepted a drawn confirmed result';
+  exception when check_violation then raise notice 'ok: no_drawn_results constraint holds'; end;
+end $$;
+
 \echo '=== 10. a pending result posts nothing ==='
 do $$ declare before int; after int; opp uuid; begin
   select count(*) into before from messages;

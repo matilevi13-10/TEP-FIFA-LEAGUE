@@ -166,3 +166,59 @@ do $$ begin
   perform act_as('Kai'); perform create_team('Long Ball FC', (select id from players where name='Ozzy'), null);
 end $$;
 select t.name, (select count(*) from players p where p.team_id = t.id) as players from teams t order by t.name;
+
+\echo '=== 8. a signed-in account with no profile repairs itself ==='
+do $$ declare uid uuid; pid uuid; n_before int; begin
+  select count(*) into n_before from players;
+
+  -- Somebody who exists in auth but never got a profile row (the old stuck login).
+  insert into auth.users (email) values ('orphan@example.com') returning id into uid;
+  perform set_config('test.uid', uid::text, false);
+  perform set_config('test.email', 'orphan@example.com', false);
+
+  if (select id from players where user_id = uid) is not null then
+    raise exception 'TEST FAILED: fixture is wrong, profile already exists';
+  end if;
+
+  pid := ensure_account();
+  if pid is null then raise exception 'TEST FAILED: ensure_account returned nothing'; end if;
+  if (select name from players where id = pid) <> 'orphan' then
+    raise exception 'TEST FAILED: username not derived from the email, got "%"',
+      (select name from players where id = pid);
+  end if;
+  if (select count(*) from players) <> n_before + 1 then
+    raise exception 'TEST FAILED: wrong number of rows created';
+  end if;
+  raise notice 'ok: orphaned login got a profile from its email';
+
+  -- Idempotent: calling again must not create a second row.
+  if ensure_account() <> pid then raise exception 'TEST FAILED: ensure_account was not idempotent'; end if;
+  if (select count(*) from players) <> n_before + 1 then
+    raise exception 'TEST FAILED: ensure_account created a duplicate';
+  end if;
+  raise notice 'ok: ensure_account is idempotent';
+end $$;
+
+do $$ declare uid uuid; begin
+  -- A colliding local-part gets a suffix rather than failing.
+  insert into auth.users (email) values ('orphan@other.com') returning id into uid;
+  perform set_config('test.uid', uid::text, false);
+  perform set_config('test.email', 'orphan@other.com', false);
+  perform ensure_account();
+  if (select name from players where user_id = uid) <> 'orphan 2' then
+    raise exception 'TEST FAILED: collision not resolved, got "%"',
+      (select name from players where user_id = uid);
+  end if;
+  raise notice 'ok: username collisions get a suffix';
+end $$;
+
+do $$ declare uid uuid; begin
+  -- The admin address gets the controls even via this path.
+  insert into auth.users (email) values ('admin2@example.com') returning id into uid;
+  perform set_config('test.uid', uid::text, false);
+  perform set_config('test.email', 'matilevi13@gmail.com', false);
+  perform ensure_account();
+  if not is_admin() then raise exception 'TEST FAILED: admin address did not get admin via ensure_account'; end if;
+  raise notice 'ok: admin address recognised through ensure_account too';
+  delete from players where user_id = uid;
+end $$;

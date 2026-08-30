@@ -101,7 +101,11 @@ create table public.matches (
   -- Empty bracket slots are legitimately (null, null); only reject a team
   -- drawn against itself.
   constraint different_teams check (team_a is null or team_b is null or team_a <> team_b),
-  constraint league_has_both_teams check (phase <> 'league' or (team_a is not null and team_b is not null))
+  constraint league_has_both_teams check (phase <> 'league' or (team_a is not null and team_b is not null)),
+  -- Every result has a winner. Draws are not a thing in this league.
+  constraint no_drawn_results check (
+    status <> 'confirmed' or score_a is null or score_b is null or score_a <> score_b
+  )
 );
 
 create unique index matches_bracket_slot_idx
@@ -181,12 +185,10 @@ agg as (
     t.name,
     count(p.team_id)::int                                as played,
     (count(*) filter (where p.gf > p.ga))::int           as won,
-    (count(*) filter (where p.gf = p.ga))::int           as drawn,
     (count(*) filter (where p.gf < p.ga))::int           as lost,
     coalesce(sum(p.gf), 0)::int                          as goals_for,
     coalesce(sum(p.ga), 0)::int                          as goals_against,
-    (count(*) filter (where p.gf > p.ga) * 3
-       + count(*) filter (where p.gf = p.ga))::int       as points
+    (count(*) filter (where p.gf > p.ga) * 3)::int       as points
   from public.teams t
   left join played p on p.team_id = t.id
   where t.is_active
@@ -275,6 +277,58 @@ begin
     values (uid, my_email, btrim(p_username), my_email = admin_email)
     returning id into pid;
   end if;
+
+  return pid;
+end;
+$$;
+
+-- Guarantees the signed-in user has a profile row, inventing a username from
+-- their email if they somehow arrived without one (an account created before
+-- this schema, or a sign-up interrupted between signUp and claim_account).
+-- There is no such thing as a signed-in user with no profile.
+create or replace function public.ensure_account()
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  uid         uuid := auth.uid();
+  my_email    text := lower(btrim(coalesce(auth.jwt() ->> 'email', '')));
+  admin_email text;
+  base        text;
+  candidate   text;
+  n           int := 1;
+  pid         uuid;
+begin
+  if uid is null then
+    raise exception 'Not signed in.' using errcode = 'P0001';
+  end if;
+
+  select id into pid from public.players where user_id = uid;
+  if pid is not null then
+    -- Keep the email and admin flag current on every sign-in.
+    select lower(btrim(ls.admin_email)) into admin_email
+      from public.league_settings ls where ls.id = 1;
+    update public.players
+       set email = coalesce(nullif(my_email, ''), email),
+           is_admin = (coalesce(nullif(my_email, ''), email) = admin_email)
+     where id = pid;
+    return pid;
+  end if;
+
+  select lower(btrim(ls.admin_email)) into admin_email
+    from public.league_settings ls where ls.id = 1;
+
+  -- Take the part before the @, fall back to "player".
+  base := nullif(btrim(split_part(my_email, '@', 1)), '');
+  base := left(coalesce(base, 'player'), 36);
+  candidate := base;
+
+  while exists (select 1 from public.players where lower(btrim(name)) = lower(candidate)) loop
+    n := n + 1;
+    candidate := base || ' ' || n;
+  end loop;
+
+  insert into public.players (user_id, email, name, is_admin)
+  values (uid, nullif(my_email, ''), candidate, my_email = admin_email)
+  returning id into pid;
 
   return pid;
 end;
@@ -380,7 +434,7 @@ returns int language sql stable security definer set search_path = public as $$
      and (team_a = p_team or team_b = p_team);
 $$;
 
--- Records a league result. The winning team submits; on a draw either may.
+-- Records a league result. The winning team submits; there are no draws.
 create or replace function public.submit_league_result(
   p_opponent uuid, p_my_score int, p_opp_score int
 ) returns uuid language plpgsql security definer set search_path = public as $$
@@ -415,6 +469,10 @@ begin
     raise exception 'Enter a valid score.' using errcode = 'P0001';
   end if;
 
+  if p_my_score = p_opp_score then
+    raise exception 'Games cannot end level — play it out until somebody wins.'
+      using errcode = 'P0001';
+  end if;
   if p_my_score < p_opp_score then
     raise exception 'The winning team submits the result. Ask % to send this one.', opp.name
       using errcode = 'P0001';
@@ -436,7 +494,7 @@ begin
 end;
 $$;
 
--- Records a playoff result into an existing bracket slot. No draws.
+-- Records a playoff result into an existing bracket slot.
 create or replace function public.submit_playoff_result(
   p_match_id uuid, p_my_score int, p_opp_score int
 ) returns uuid language plpgsql security definer set search_path = public as $$
@@ -464,7 +522,8 @@ begin
     raise exception 'Enter a valid score.' using errcode = 'P0001';
   end if;
   if p_my_score = p_opp_score then
-    raise exception 'Playoff games cannot end level — play it out.' using errcode = 'P0001';
+    raise exception 'Games cannot end level — play it out until somebody wins.'
+      using errcode = 'P0001';
   end if;
   if p_my_score < p_opp_score then
     raise exception 'The winning team submits the result.' using errcode = 'P0001';
@@ -502,8 +561,7 @@ begin
      set status       = 'confirmed',
          confirmed_by = me,
          confirmed_at = now(),
-         winner_id    = case when score_a > score_b then team_a
-                             when score_b > score_a then team_b end,
+         winner_id    = case when score_a > score_b then team_a else team_b end,
          updated_at   = now()
    where id = p_match_id;
 end;
@@ -629,8 +687,7 @@ begin
 
   select name into a from public.teams where id = m.team_a;
   select name into b from public.teams where id = m.team_b;
-  winner := case when m.winner_id = m.team_a then a
-                 when m.winner_id = m.team_b then b end;
+  winner := case when m.winner_id = m.team_a then a else b end;
 
   insert into public.messages (kind, body, team_name, match_id)
   values ('result',
@@ -975,8 +1032,8 @@ begin
      or p_score_a < 0 or p_score_b < 0 or p_score_a > 99 or p_score_b > 99 then
     raise exception 'Enter a valid score.' using errcode = 'P0001';
   end if;
-  if m.phase = 'playoff' and p_score_a = p_score_b then
-    raise exception 'Playoff games cannot end level.' using errcode = 'P0001';
+  if p_score_a = p_score_b then
+    raise exception 'Games cannot end level — somebody has to win.' using errcode = 'P0001';
   end if;
 
   if m.phase = 'playoff' and m.status = 'confirmed' then
@@ -985,8 +1042,7 @@ begin
 
   update public.matches
      set score_a = p_score_a, score_b = p_score_b, status = 'confirmed',
-         winner_id = case when p_score_a > p_score_b then team_a
-                          when p_score_b > p_score_a then team_b end,
+         winner_id = case when p_score_a > p_score_b then team_a else team_b end,
          confirmed_at = now(), admin_note = p_note, updated_at = now()
    where id = p_match_id;
 
@@ -1041,6 +1097,7 @@ $$;
 
 grant execute on function
   public.claim_account(text),
+  public.ensure_account(),
   public.current_player_id(),
   public.current_team_id(),
   public.is_admin(),
