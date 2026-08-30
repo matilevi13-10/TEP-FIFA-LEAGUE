@@ -1,0 +1,472 @@
+/* ===========================================================================
+   TEP FIFA LEAGUE — design system
+
+   Type      PP Neue Montreal. Scale 11 / 13 / 15 / 19 / 26 / clamp(44–64).
+             Book 400 for body, Medium 500 for UI and labels, Bold 700 for
+             numbers that matter (pot, score, points).
+   Colour    #0A0A0A base, two lifted greys for surfaces. Lavender #B5A8FF is
+             the only accent — CTAs, active state, rank 1, glow. Win/draw/loss
+             are told through lavender + grey weight, never red/green, so the
+             palette stays one note. Red appears only on destructive admin acts.
+   Surface   Glass: 4.5% white, 1px hairline border, 24px blur, inset top
+             highlight. Lavender bloom is a shadow, never a gradient fill.
+   Rhythm    20px page gutter, 12px between cards, 28px between sections,
+             20px radius (14px for controls).
+   Motion    160ms ease-out for press, 320ms for entry. Everything respects
+             prefers-reduced-motion.
+   Targets   44px minimum, 52px for anything a thumb hits often.
+   =========================================================================== */
+
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./fonts/PPNeueMontreal-book.woff2') format('woff2');
+  font-weight: 400; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./fonts/PPNeueMontreal-medium.woff2') format('woff2');
+  font-weight: 500; font-style: normal; font-display: swap;
+}
+@font-face {
+  font-family: 'PP Neue Montreal';
+  src: url('./fonts/PPNeueMontreal-bold.woff2') format('woff2');
+  font-weight: 700; font-style: normal; font-display: swap;
+}
+
+:root {
+  --bg:        #0A0A0A;
+  --bg-lift:   #0F0F12;
+  --accent:    #B5A8FF;
+  --accent-hi: #CFC6FF;
+  --accent-dp: #6F5FC9;
+  --glow:      rgba(181, 168, 255, 0.30);
+
+  --text:   #F4F3F8;
+  --text-2: rgba(244, 243, 248, 0.62);
+  --text-3: rgba(244, 243, 248, 0.34);
+
+  --line:    rgba(255, 255, 255, 0.09);
+  --line-hi: rgba(255, 255, 255, 0.16);
+  --glass:   rgba(255, 255, 255, 0.045);
+  --glass-2: rgba(255, 255, 255, 0.075);
+  --danger:  #FF6B6B;
+
+  --r:    20px;
+  --r-sm: 14px;
+  --gutter: 20px;
+
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'PP Neue Montreal', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  text-rendering: optimizeLegibility;
+}
+
+/* Two soft lavender blooms and a film of noise, so the black has depth and
+   the large flat areas never band on an OLED phone. */
+body::before {
+  content: ''; position: fixed; inset: 0; z-index: -2; pointer-events: none;
+  background:
+    radial-gradient(120% 55% at 50% -12%, rgba(181, 168, 255, 0.15), transparent 62%),
+    radial-gradient(90% 45% at 105% 108%, rgba(181, 168, 255, 0.07), transparent 60%);
+}
+body::after {
+  content: ''; position: fixed; inset: 0; z-index: -1; pointer-events: none;
+  opacity: 0.022;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='140' height='140' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+button, input, select { font: inherit; color: inherit; }
+button { border: 0; background: none; cursor: pointer; }
+input { -webkit-appearance: none; appearance: none; }
+a { color: inherit; text-decoration: none; }
+
+.num { font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; }
+
+/* ── Layout ─────────────────────────────────────────────────────────────── */
+
+.app { min-height: 100%; display: flex; flex-direction: column; }
+
+.page {
+  flex: 1;
+  width: 100%;
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 0 var(--gutter) calc(104px + var(--safe-b));
+  animation: enter 320ms var(--ease) both;
+}
+@keyframes enter { from { opacity: 0; transform: translateY(10px); } }
+
+.section { margin-top: 28px; }
+.section:first-child { margin-top: 0; }
+
+.eyebrow {
+  font-size: 11px; font-weight: 500; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--text-3);
+  margin: 0 0 10px 2px;
+}
+
+.stack { display: flex; flex-direction: column; gap: 12px; }
+.row { display: flex; align-items: center; gap: 12px; }
+.spread { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.muted { color: var(--text-2); }
+.dim { color: var(--text-3); }
+.center { text-align: center; }
+
+/* ── Header ─────────────────────────────────────────────────────────────── */
+
+.header {
+  position: sticky; top: 0; z-index: 30;
+  padding: calc(var(--safe-t) + 14px) var(--gutter) 14px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  /* Opaque enough that a card's lavender bloom doesn't smear through while
+     it scrolls underneath, then fades out so the edge stays soft. */
+  background: linear-gradient(to bottom, rgba(10,10,10,0.97) 58%, rgba(10,10,10,0.86) 80%, transparent);
+  backdrop-filter: blur(18px);
+}
+.header__inner {
+  width: 100%; max-width: 520px; margin: 0 auto;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+.header__mark { height: 20px; width: auto; display: block; opacity: 0.95; }
+.header__team { font-size: 13px; font-weight: 500; color: var(--text-2); }
+
+/* ── Cards ──────────────────────────────────────────────────────────────── */
+
+.card {
+  position: relative;
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  padding: 18px;
+  backdrop-filter: blur(24px) saturate(140%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.055), 0 20px 44px -28px rgba(0,0,0,0.95);
+}
+.card--accent {
+  border-color: rgba(181, 168, 255, 0.30);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.07),
+              0 0 44px -14px var(--glow),
+              0 20px 44px -28px rgba(0,0,0,0.95);
+}
+.card--flat { padding: 0; overflow: hidden; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  min-height: 52px; padding: 0 20px;
+  border-radius: var(--r-sm);
+  font-size: 15px; font-weight: 500; letter-spacing: -0.01em;
+  transition: transform 160ms var(--ease), background 160ms var(--ease),
+              opacity 160ms var(--ease), box-shadow 160ms var(--ease);
+  user-select: none;
+}
+.btn:active:not(:disabled) { transform: scale(0.97); }
+.btn:disabled { opacity: 0.38; cursor: not-allowed; }
+.btn--block { width: 100%; }
+.btn--primary {
+  background: var(--accent); color: #0A0A0A; font-weight: 500;
+  box-shadow: 0 0 32px -10px var(--glow);
+}
+.btn--primary:hover:not(:disabled) { background: var(--accent-hi); }
+.btn--ghost {
+  background: var(--glass-2); color: var(--text);
+  border: 1px solid var(--line);
+}
+.btn--ghost:hover:not(:disabled) { background: rgba(255,255,255,0.11); }
+.btn--quiet { background: none; color: var(--text-2); min-height: 44px; }
+.btn--quiet:hover:not(:disabled) { color: var(--text); }
+.btn--danger { background: rgba(255,107,107,0.13); color: var(--danger); border: 1px solid rgba(255,107,107,0.28); }
+.btn--sm { min-height: 40px; padding: 0 14px; font-size: 13px; border-radius: 11px; }
+
+/* ── Inputs ─────────────────────────────────────────────────────────────── */
+
+.field { display: flex; flex-direction: column; gap: 7px; }
+.field__label {
+  font-size: 11px; font-weight: 500; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-3);
+}
+.input {
+  min-height: 52px; padding: 0 15px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--text); font-size: 16px; /* 16px stops iOS zooming on focus */
+  transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease);
+  width: 100%;
+}
+.input:focus {
+  outline: none; border-color: rgba(181,168,255,0.55);
+  box-shadow: 0 0 0 3px rgba(181,168,255,0.13);
+}
+.input::placeholder { color: var(--text-3); }
+
+/* ── Badges & pills ─────────────────────────────────────────────────────── */
+
+.badge {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 20px; height: 20px; padding: 0 6px;
+  border-radius: 10px; background: var(--accent); color: #0A0A0A;
+  font-size: 11px; font-weight: 700; line-height: 1;
+}
+.pill {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 26px; padding: 0 11px; border-radius: 13px;
+  background: var(--glass-2); border: 1px solid var(--line);
+  font-size: 12px; font-weight: 500; color: var(--text-2);
+}
+.pill--accent {
+  background: rgba(181,168,255,0.14); border-color: rgba(181,168,255,0.32);
+  color: var(--accent);
+}
+.pill--live::before {
+  content: ''; width: 6px; height: 6px; border-radius: 50%;
+  background: var(--accent); box-shadow: 0 0 8px var(--accent);
+  animation: blink 2.4s ease-in-out infinite;
+}
+@keyframes blink { 50% { opacity: 0.35; } }
+
+/* ── Toast ──────────────────────────────────────────────────────────────── */
+
+.toasts {
+  position: fixed; left: 0; right: 0; bottom: calc(88px + var(--safe-b));
+  z-index: 60; display: flex; flex-direction: column; align-items: center;
+  gap: 8px; padding: 0 var(--gutter); pointer-events: none;
+}
+.toast {
+  width: 100%; max-width: 480px;
+  display: flex; align-items: center; gap: 12px;
+  padding: 13px 16px; border-radius: var(--r-sm);
+  background: rgba(24,24,28,0.94); border: 1px solid var(--line-hi);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 18px 40px -18px rgba(0,0,0,0.9);
+  font-size: 14px; pointer-events: auto;
+  animation: toast-in 260ms var(--ease) both;
+}
+.toast--good { border-color: rgba(181,168,255,0.42); box-shadow: 0 0 34px -12px var(--glow); }
+.toast--bad { border-color: rgba(255,107,107,0.42); }
+.toast__text { flex: 1; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(14px) scale(0.97); } }
+
+/* ── Bottom navigation ──────────────────────────────────────────────────── */
+
+.tabs {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  padding: 8px var(--gutter) calc(8px + var(--safe-b));
+  background: linear-gradient(to top, rgba(10,10,10,0.97) 55%, rgba(10,10,10,0.6));
+  backdrop-filter: blur(20px);
+  border-top: 1px solid var(--line);
+}
+.tabs__inner {
+  max-width: 520px; margin: 0 auto;
+  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 4px;
+}
+.tab {
+  position: relative;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 4px; min-height: 56px; border-radius: var(--r-sm);
+  color: var(--text-3); font-size: 10.5px; font-weight: 500; letter-spacing: 0.03em;
+  transition: color 160ms var(--ease), background 160ms var(--ease);
+}
+.tab svg { width: 21px; height: 21px; }
+.tab:active { background: var(--glass); }
+.tab--on { color: var(--accent); }
+.tab--on svg { filter: drop-shadow(0 0 9px var(--glow)); }
+.tab__dot {
+  position: absolute; top: 7px; left: 50%; margin-left: 6px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: var(--accent); color: #0A0A0A;
+  font-size: 10px; font-weight: 700; line-height: 16px; text-align: center;
+  box-shadow: 0 0 12px var(--glow);
+  animation: pop 2.6s var(--ease) infinite;
+}
+@keyframes pop { 0%, 82%, 100% { transform: scale(1); } 88% { transform: scale(1.18); } }
+
+/* ── Utility ────────────────────────────────────────────────────────────── */
+
+.divider { height: 1px; background: var(--line); }
+.skeleton {
+  border-radius: var(--r-sm);
+  background: linear-gradient(90deg, var(--glass) 25%, var(--glass-2) 50%, var(--glass) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s linear infinite;
+}
+@keyframes shimmer { to { background-position: -200% 0; } }
+
+.spin { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Wider screens ──────────────────────────────────────────────────────── */
+
+@media (min-width: 768px) {
+  :root { --gutter: 28px; }
+  body { font-size: 16px; }
+  .page, .header__inner, .tabs__inner { max-width: 680px; }
+}
+
+@media (min-width: 1024px) {
+  /* Navigation moves into the header; the thumb bar is a phone idea. */
+  .tabs { display: none; }
+  .page { max-width: 1080px; padding-bottom: 64px; }
+  .header__inner { max-width: 1080px; }
+  .header { padding-top: 20px; padding-bottom: 16px; }
+  .topnav { display: flex; align-items: center; gap: 4px; }
+  .topnav__link {
+    position: relative;
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 42px; padding: 0 14px; border-radius: 11px;
+    font-size: 14px; font-weight: 500; color: var(--text-3);
+    transition: color 160ms var(--ease), background 160ms var(--ease);
+  }
+  .topnav__link:hover { color: var(--text-2); background: var(--glass); }
+  .topnav__link--on { color: var(--accent); background: rgba(181,168,255,0.10); }
+  .topnav__link svg { width: 17px; height: 17px; }
+  .toasts { bottom: 28px; }
+}
+@media (max-width: 1023px) { .topnav { display: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important; animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Home: one column on phones, two balanced columns on desktop ────────── */
+
+/* Bottom-margin rhythm so neither layout needs a first-child exception. */
+.home .section { margin-top: 0; margin-bottom: 24px; }
+
+@media (min-width: 1024px) {
+  .home {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 24px;
+    align-items: start;
+  }
+}
+
+/* ── League table ───────────────────────────────────────────────────────── */
+
+.tbl { width: 100%; }
+.tbl__head, .tbl__row {
+  display: grid;
+  grid-template-columns: 26px 1fr 42px;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 15px;
+}
+.tbl__head {
+  padding-top: 9px; padding-bottom: 9px;
+  font-size: 10.5px; font-weight: 500; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-3);
+  border-bottom: 1px solid var(--line);
+}
+.tbl__row + .tbl__row { border-top: 1px solid var(--line); }
+.tbl__row--me { background: rgba(181, 168, 255, 0.075); }
+.tbl__row--me .tbl__name { color: var(--accent); }
+.tbl__rank {
+  font-size: 13px; font-weight: 500; color: var(--text-3);
+  font-variant-numeric: tabular-nums; text-align: center;
+}
+.tbl__row--top .tbl__rank {
+  color: var(--accent);
+  text-shadow: 0 0 12px var(--glow);
+}
+.tbl__name { display: block; font-size: 15px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tbl__sub { display: block; font-size: 11.5px; color: var(--text-3); font-variant-numeric: tabular-nums; margin-top: 1px; }
+/* Right-aligned already, so proportional figures keep it tight. */
+.tbl__pts { font-size: 18px; font-weight: 700; text-align: right; }
+/* Wide columns are folded into .tbl__sub on phones. */
+.tbl__cell { display: none; font-size: 13px; text-align: center; font-variant-numeric: tabular-nums; color: var(--text-2); }
+
+@media (min-width: 768px) {
+  .tbl__head, .tbl__row {
+    grid-template-columns: 30px 1fr repeat(7, 38px) 52px;
+    gap: 6px;
+  }
+  .tbl__cell { display: block; }
+  .tbl__sub { display: none; }
+}
+
+/* ── Bracket ────────────────────────────────────────────────────────────── */
+
+.bracket {
+  display: flex; gap: 36px;
+  overflow-x: auto; padding: 4px 2px 10px;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+.bracket__round {
+  display: flex; flex-direction: column; justify-content: space-around;
+  gap: 16px; min-width: 210px; flex: 1; scroll-snap-align: start;
+}
+.bracket__title {
+  font-size: 10.5px; font-weight: 500; letter-spacing: 0.12em;
+  text-transform: uppercase; color: var(--text-3);
+  padding-left: 2px; margin-bottom: 2px;
+}
+.bracket__pair {
+  position: relative; flex: 1;
+  display: flex; flex-direction: column; justify-content: space-around; gap: 16px;
+}
+/* Elbow into the next round: a stub from each card, a riser joining the pair,
+   and a stub carrying on to the parent slot. */
+.bracket__round:not(:last-child) .bracket__slot::after {
+  content: ''; position: absolute; left: 100%; top: 50%;
+  width: 18px; height: 1px; background: var(--line-hi);
+}
+.bracket__round:not(:last-child) .bracket__pair--two::after {
+  content: ''; position: absolute; left: calc(100% + 18px);
+  top: 25%; bottom: 25%; width: 1px; background: var(--line-hi);
+}
+.bracket__round:not(:last-child) .bracket__pair--two::before {
+  content: ''; position: absolute; left: calc(100% + 18px); top: 50%;
+  width: 18px; height: 1px; background: var(--line-hi);
+}
+.bracket__slot { position: relative; }
+
+.matchup {
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  background: var(--glass); overflow: hidden;
+  backdrop-filter: blur(20px);
+  transition: border-color 160ms var(--ease), box-shadow 160ms var(--ease);
+}
+.matchup--live { border-color: rgba(181,168,255,0.36); box-shadow: 0 0 30px -12px var(--glow); }
+.matchup--done { opacity: 0.96; }
+.matchup__side {
+  display: grid; grid-template-columns: 20px 1fr 26px;
+  align-items: center; gap: 9px; padding: 11px 12px;
+  font-size: 14px;
+}
+.matchup__side + .matchup__side { border-top: 1px solid var(--line); }
+.matchup__side--won { background: rgba(181,168,255,0.10); }
+.matchup__side--won .matchup__team { color: var(--accent); font-weight: 500; }
+.matchup__side--lost .matchup__team, .matchup__side--lost .matchup__score { color: var(--text-3); }
+.matchup__seed {
+  font-size: 10.5px; color: var(--text-3); text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.matchup__team { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.matchup__score { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.matchup__foot {
+  padding: 8px 12px; border-top: 1px solid var(--line);
+  font-size: 11.5px; color: var(--text-3);
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
