@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Logo } from '../components/Logo'
 import { IconBackspace, IconChevron, IconSpinner } from '../components/Icons'
 import { fetchTeamOptions, useAuth } from '../lib/auth'
@@ -16,12 +16,15 @@ export function SignIn() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
+  const loadTeams = useCallback(() => {
     if (!isConfigured) return
+    setError(null)
     fetchTeamOptions()
       .then(setTeams)
       .catch((cause) => setError(readableError(cause)))
   }, [])
+
+  useEffect(loadTeams, [loadTeams])
 
   // Fires the moment the fourth digit lands — no submit button to hunt for.
   useEffect(() => {
@@ -62,7 +65,13 @@ VITE_SUPABASE_ANON_KEY=eyJ...`}
   if (!chosen) {
     return (
       <Shell>
-        {teams === null ? (
+        {teams === null && error ? (
+          <div className="card" style={{ textAlign: 'left' }}>
+            <div className="eyebrow">Can't reach the league</div>
+            <p style={{ margin: '0 0 14px' }}>{error}</p>
+            <button className="btn btn--ghost btn--block" onClick={loadTeams}>Try again</button>
+          </div>
+        ) : teams === null ? (
           <div className="stack">
             {[0, 1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 62 }} />)}
           </div>
@@ -97,7 +106,9 @@ VITE_SUPABASE_ANON_KEY=eyJ...`}
             )}
           </div>
         )}
-        {error && <p className="center" style={{ color: 'var(--danger)', fontSize: 14 }}>{error}</p>}
+        {error && teams !== null && (
+          <p className="center" style={{ color: 'var(--danger)', fontSize: 14 }}>{error}</p>
+        )}
       </Shell>
     )
   }
