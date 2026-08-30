@@ -361,19 +361,21 @@ function AddTeam({ run, onDone }: { run: Run; onDone: () => void }) {
 
 function TeamRow({ team, run }: { team: Team; run: Run }) {
   const league = useLeague()
+  const roster = league.playersFor(team.id)
   const [open, setOpen] = useState(false)
   const [name, setName] = useState(team.name)
-  const [one, setOne] = useState(team.player_one)
-  const [two, setTwo] = useState(team.player_two)
+  const [one, setOne] = useState(roster[0] ?? '')
+  const [two, setTwo] = useState(roster[1] ?? '')
   const [active, setActive] = useState(team.is_active)
   const [paid, setPaid] = useState(team.paid)
   const [pin, setPin] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
-    setName(team.name); setOne(team.player_one); setTwo(team.player_two)
+    setName(team.name); setOne(roster[0] ?? ''); setTwo(roster[1] ?? '')
     setActive(team.is_active); setPaid(team.paid)
-  }, [team])
+    // roster is rebuilt on every render, so key the effect on its contents
+  }, [team, roster.join('\u0000')]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const act = async (work: () => Promise<unknown>, message: string) => {
     setBusy(true)
@@ -395,7 +397,7 @@ function TeamRow({ team, run }: { team: Team; run: Run }) {
             {!team.is_active && <span className="pill" style={{ marginLeft: 8, height: 20, fontSize: 10.5 }}>Inactive</span>}
           </span>
           <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3)' }}>
-            {team.player_one} &amp; {team.player_two}
+            {roster.join(' & ')}
             {team.is_active && ` · ${team.paid ? 'paid' : 'unpaid'}`}
             {!team.user_id && ' · never signed in'}
           </span>

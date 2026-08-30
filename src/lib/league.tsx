@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { supabase } from './supabase'
 import { useAuth } from './auth'
-import type { Match, Settings, Standing, Team } from './types'
+import type { Match, Player, Settings, Standing, Team } from './types'
 
 interface LeagueValue {
   loading: boolean
@@ -11,6 +11,8 @@ interface LeagueValue {
   settings: Settings | null
   standings: Standing[]
   teamById: (id: string | null | undefined) => Team | undefined
+  /** The two player names for a team, in slot order. */
+  playersFor: (teamId: string | null | undefined) => string[]
   refresh: () => Promise<void>
   /** Results submitted against me that I still have to approve. */
   pendingForMe: Match[]
@@ -82,6 +84,7 @@ export function slotsUsed(matches: Match[], teamId: string): number {
 export function LeagueProvider({ children }: { children: ReactNode }) {
   const { session, team } = useAuth()
   const [teams, setTeams] = useState<Team[]>([])
+  const [players, setPlayers] = useState<Player[]>([])
   const [matches, setMatches] = useState<Match[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
@@ -89,12 +92,14 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
 
   const refresh = useCallback(async () => {
     if (!session) return
-    const [teamsResult, matchesResult, settingsResult] = await Promise.all([
+    const [teamsResult, playersResult, matchesResult, settingsResult] = await Promise.all([
       supabase.from('teams').select('*').order('name'),
+      supabase.from('players').select('*').order('slot'),
       supabase.from('matches').select('*').order('created_at', { ascending: false }),
       supabase.from('league_settings').select('*').eq('id', 1).maybeSingle(),
     ])
     if (teamsResult.data) setTeams(teamsResult.data as Team[])
+    if (playersResult.data) setPlayers(playersResult.data as Player[])
     if (matchesResult.data) setMatches(matchesResult.data as Match[])
     if (settingsResult.data) setSettings(settingsResult.data as Settings)
     setLoading(false)
@@ -102,7 +107,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!session) {
-      setTeams([]); setMatches([]); setSettings(null); setLoading(true)
+      setTeams([]); setPlayers([]); setMatches([]); setSettings(null); setLoading(true)
       return
     }
     void refresh()
@@ -119,6 +124,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
       .channel('tep-league')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'matches' }, nudge)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'teams' }, nudge)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, nudge)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'league_settings' }, nudge)
       .subscribe()
 
@@ -137,6 +143,10 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
 
   const value = useMemo<LeagueValue>(() => {
     const byId = new Map(teams.map((t) => [t.id, t]))
+    const namesByTeam = new Map<string, string[]>()
+    for (const player of [...players].sort((a, b) => a.slot - b.slot)) {
+      namesByTeam.set(player.team_id, [...(namesByTeam.get(player.team_id) ?? []), player.name])
+    }
     const activeTeams = teams.filter((t) => t.is_active)
     const mine = team?.id ?? null
 
@@ -148,6 +158,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
       activeTeams,
       standings: computeStandings(teams, matches),
       teamById: (id) => (id ? byId.get(id) : undefined),
+      playersFor: (id) => (id ? (namesByTeam.get(id) ?? []) : []),
       refresh,
       pendingForMe: mine
         ? matches.filter(
@@ -157,7 +168,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
       awaitingOthers: mine ? matches.filter((m) => m.status === 'pending' && m.submitted_by === mine) : [],
       potCents: activeTeams.length * (settings?.buy_in_cents ?? 0),
     }
-  }, [loading, teams, matches, settings, team, refresh])
+  }, [loading, teams, players, matches, settings, team, refresh])
 
   return <LeagueContext.Provider value={value}>{children}</LeagueContext.Provider>
 }

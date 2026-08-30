@@ -2,12 +2,17 @@ export type Phase = 'league' | 'playoffs' | 'complete'
 export type MatchPhase = 'league' | 'playoff'
 export type MatchStatus = 'scheduled' | 'pending' | 'confirmed' | 'disputed' | 'voided'
 
+export interface Player {
+  id: string
+  team_id: string
+  name: string
+  slot: 1 | 2
+}
+
 export interface Team {
   id: string
   user_id: string | null
   name: string
-  player_one: string
-  player_two: string
   is_admin: boolean
   is_active: boolean
   paid: boolean

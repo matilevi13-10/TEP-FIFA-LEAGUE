@@ -44,7 +44,8 @@ export function SignIn() {
         <div className="card" style={{ textAlign: 'left' }}>
           <div className="eyebrow">Setup needed</div>
           <p style={{ margin: '0 0 10px' }}>
-            Add your Supabase URL and anon key to <code>.env</code>, then restart the dev server.
+            This build has no Supabase credentials. Locally, put them in <code>.env</code> and restart.
+            On Amplify, set them under App settings &rarr; Environment variables, then redeploy.
           </p>
           <pre style={{
             margin: 0, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.45)',

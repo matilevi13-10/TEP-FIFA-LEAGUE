@@ -117,6 +117,7 @@ export function Submit() {
               {opponents.map((other) => {
                 const theirRemaining = (settings?.games_per_team ?? 0) - slotsUsed(matches, other.id)
                 const full = theirRemaining <= 0
+                const names = league.playersFor(other.id).join(' & ')
                 return (
                   <button
                     key={other.id}
@@ -132,7 +133,7 @@ export function Submit() {
                       {other.name}
                     </div>
                     <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }}>
-                      {full ? 'Games all played' : `${other.player_one} & ${other.player_two}`}
+                      {full ? 'Games all played' : names}
                     </div>
                   </button>
                 )

@@ -11,6 +11,7 @@ create extension if not exists pgcrypto with schema extensions;
 -- ---------------------------------------------------------------------------
 drop view   if exists public.standings cascade;
 drop table  if exists public.matches cascade;
+drop table  if exists public.players cascade;
 drop table  if exists public.team_secrets cascade;
 drop table  if exists public.league_settings cascade;
 drop table  if exists public.teams cascade;
@@ -23,8 +24,6 @@ create table public.teams (
   id          uuid primary key default gen_random_uuid(),
   user_id     uuid unique references auth.users(id) on delete set null,
   name        text not null unique check (length(btrim(name)) between 1 and 40),
-  player_one  text not null check (length(btrim(player_one)) between 1 and 40),
-  player_two  text not null check (length(btrim(player_two)) between 1 and 40),
   is_admin    boolean not null default false,
   -- is_active=false → an admin-only login: excluded from the table, the pot and
   -- every opponent picker.
@@ -32,6 +31,19 @@ create table public.teams (
   paid        boolean not null default false,
   created_at  timestamptz not null default now()
 );
+
+-- Each team is exactly two players. Slot is 1 or 2 and unique per team, so a
+-- team can never end up with three names or two "player one"s.
+create table public.players (
+  id         uuid primary key default gen_random_uuid(),
+  team_id    uuid not null references public.teams(id) on delete cascade,
+  name       text not null check (length(btrim(name)) between 1 and 40),
+  slot       smallint not null check (slot in (1, 2)),
+  created_at timestamptz not null default now(),
+  unique (team_id, slot)
+);
+
+create index players_team_idx on public.players (team_id);
 
 -- PIN material lives in its own table with NO select policy, so a signed-in
 -- player can never read another team's hash. Only SECURITY DEFINER functions
@@ -152,11 +164,13 @@ from agg;
 -- ---------------------------------------------------------------------------
 
 alter table public.teams           enable row level security;
+alter table public.players         enable row level security;
 alter table public.team_secrets    enable row level security;
 alter table public.league_settings enable row level security;
 alter table public.matches         enable row level security;
 
 create policy teams_read    on public.teams           for select to authenticated using (true);
+create policy players_read  on public.players         for select to authenticated using (true);
 create policy settings_read on public.league_settings for select to authenticated using (true);
 create policy matches_read  on public.matches         for select to authenticated using (true);
 -- team_secrets intentionally has zero policies: RLS on + no policy = deny all.
@@ -169,8 +183,16 @@ create policy matches_read  on public.matches         for select to authenticate
 create or replace function public.list_teams_for_signin()
 returns table (id uuid, name text, player_one text, player_two text, is_active boolean)
 language sql stable security definer set search_path = public as $$
-  select id, name, player_one, player_two, is_active
-  from public.teams order by is_active desc, name asc;
+  select
+    t.id,
+    t.name,
+    coalesce(max(p.name) filter (where p.slot = 1), '') as player_one,
+    coalesce(max(p.name) filter (where p.slot = 2), '') as player_two,
+    t.is_active
+  from public.teams t
+  left join public.players p on p.team_id = t.id
+  group by t.id, t.name, t.is_active
+  order by t.is_active desc, t.name asc;
 $$;
 
 -- Verifies the PIN and, only on success, hands back the Supabase Auth
@@ -523,9 +545,13 @@ begin
     raise exception 'A team called "%" already exists.', btrim(p_name) using errcode = 'P0001';
   end if;
 
-  insert into public.teams (name, player_one, player_two)
-  values (btrim(p_name), btrim(p_player_one), btrim(p_player_two))
+  insert into public.teams (name)
+  values (btrim(p_name))
   returning id into new_id;
+
+  insert into public.players (team_id, name, slot) values
+    (new_id, btrim(p_player_one), 1),
+    (new_id, btrim(p_player_two), 2);
 
   insert into public.team_secrets (team_id, pin_hash)
   values (new_id, extensions.crypt(p_pin, extensions.gen_salt('bf')));
@@ -545,9 +571,13 @@ begin
     raise exception 'A team called "%" already exists.', btrim(p_name) using errcode = 'P0001';
   end if;
   update public.teams
-     set name = btrim(p_name), player_one = btrim(p_player_one),
-         player_two = btrim(p_player_two), is_active = p_is_active, paid = p_paid
+     set name = btrim(p_name), is_active = p_is_active, paid = p_paid
    where id = p_team_id;
+
+  insert into public.players (team_id, name, slot) values
+    (p_team_id, btrim(p_player_one), 1),
+    (p_team_id, btrim(p_player_two), 2)
+  on conflict (team_id, slot) do update set name = excluded.name;
 end;
 $$;
 
@@ -750,7 +780,7 @@ $$;
 -- ---------------------------------------------------------------------------
 
 grant usage on schema public to anon, authenticated;
-grant select on public.teams, public.league_settings, public.matches, public.standings
+grant select on public.teams, public.players, public.league_settings, public.matches, public.standings
   to authenticated;
 
 -- Belt and braces: Supabase's default privileges grant new public tables to
@@ -807,6 +837,8 @@ begin
   exception when duplicate_object then null; end;
   begin execute 'alter publication supabase_realtime add table public.teams';
   exception when duplicate_object then null; end;
+  begin execute 'alter publication supabase_realtime add table public.players';
+  exception when duplicate_object then null; end;
   begin execute 'alter publication supabase_realtime add table public.league_settings';
   exception when duplicate_object then null; end;
 end;
@@ -821,9 +853,12 @@ insert into public.league_settings (id) values (1) on conflict (id) do nothing;
 do $$
 declare admin_id uuid;
 begin
-  insert into public.teams (name, player_one, player_two, is_admin, is_active)
-  values ('Admin', 'League', 'Admin', true, false)
+  insert into public.teams (name, is_admin, is_active)
+  values ('Admin', true, false)
   returning id into admin_id;
+
+  insert into public.players (team_id, name, slot) values
+    (admin_id, 'League', 1), (admin_id, 'Admin', 2);
 
   insert into public.team_secrets (team_id, pin_hash)
   values (admin_id, extensions.crypt('1234', extensions.gen_salt('bf')));

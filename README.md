@@ -28,7 +28,7 @@ Open **SQL Editor → New query**, paste all of [`supabase/schema.sql`](supabase
 and run it. It creates the tables, row level security, the standings view, the bracket
 engine, and every RPC the app calls. It also seeds:
 
-- the league settings row (12 games, $50 buy-in)
+- the league settings row (10 games per team, $50 buy-in — change both on the Admin screen)
 - one admin login — **team `Admin`, PIN `1234`**
 
 Re-running the file resets everything. It drops its own tables first.
@@ -149,7 +149,8 @@ src/
   screens/    SignIn, Home, Table, Submit, Bracket, Admin
   index.css   the whole design system, documented at the top
 supabase/
-  schema.sql  tables, RLS, RPCs, bracket engine, seed
+  schema.sql  teams, players, team_secrets, matches, league_settings,
+              RLS, the standings view, the bracket engine, RPCs and the seed
   tests/      run.sh + the SQL suite
 amplify.yml   build config
 ```

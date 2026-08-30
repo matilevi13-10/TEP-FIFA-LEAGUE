@@ -125,3 +125,49 @@ do $$ begin
     raise exception 'TEST FAILED: 16-team bracket built from 8 teams';
   exception when sqlstate 'P0001' then raise notice 'ok: refuses a 16-bracket with only 8 teams'; end;
 end $$;
+
+\echo '=== 22. players are stored as rows, two per team ==='
+do $$ declare tid uuid; n int; begin
+  perform act_as('Admin');
+  tid := admin_create_team('Test XI', 'Ana', 'Bruno', '4321');
+
+  select count(*) into n from players where team_id = tid;
+  if n <> 2 then raise exception 'TEST FAILED: expected 2 player rows, got %', n; end if;
+  raise notice 'ok: create_team wrote 2 player rows';
+
+  if (select name from players where team_id = tid and slot = 1) <> 'Ana'
+     or (select name from players where team_id = tid and slot = 2) <> 'Bruno' then
+    raise exception 'TEST FAILED: player slots wrong';
+  end if;
+  raise notice 'ok: slots 1 and 2 hold the right names';
+
+  -- a third player, or a duplicate slot, must be impossible
+  begin
+    insert into players (team_id, name, slot) values (tid, 'Carla', 1);
+    raise exception 'TEST FAILED: duplicate slot accepted';
+  exception when unique_violation then raise notice 'ok: one player per slot enforced'; end;
+  begin
+    insert into players (team_id, name, slot) values (tid, 'Carla', 3);
+    raise exception 'TEST FAILED: a third player was accepted';
+  exception when check_violation then raise notice 'ok: only two slots exist'; end;
+
+  -- the sign-in picker still reads both names
+  if (select player_one || '/' || player_two from list_teams_for_signin() where id = tid) <> 'Ana/Bruno' then
+    raise exception 'TEST FAILED: sign-in list lost the player names';
+  end if;
+  raise notice 'ok: sign-in list joins both names';
+
+  -- renaming through the admin RPC updates in place, does not duplicate
+  perform admin_update_team(tid, 'Test XI', 'Ana', 'Caio', true, true);
+  select count(*) into n from players where team_id = tid;
+  if n <> 2 or (select name from players where team_id = tid and slot = 2) <> 'Caio' then
+    raise exception 'TEST FAILED: update_team did not upsert cleanly (% rows)', n;
+  end if;
+  raise notice 'ok: update_team renames in place';
+
+  -- deleting the team takes its players with it
+  perform admin_delete_team(tid);
+  select count(*) into n from players where team_id = tid;
+  if n <> 0 then raise exception 'TEST FAILED: % orphaned player rows', n; end if;
+  raise notice 'ok: players cascade on team delete';
+end $$;
