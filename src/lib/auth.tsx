@@ -2,38 +2,32 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useState } 
 import type { ReactNode } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { supabase } from './supabase'
-import type { Team, TeamOption } from './types'
+import type { Player } from './types'
 
 interface AuthValue {
   ready: boolean
   session: Session | null
-  team: Team | null
-  signIn: (teamId: string, pin: string) => Promise<void>
+  player: Player | null
+  signUp: (username: string, email: string, password: string) => Promise<void>
+  signIn: (email: string, password: string) => Promise<void>
   signOut: () => Promise<void>
-  reloadTeam: () => Promise<void>
+  reloadPlayer: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthValue | null>(null)
 
-/** Sign-in picker data. Public on purpose — names only, never PIN material. */
-export async function fetchTeamOptions(): Promise<TeamOption[]> {
-  const { data, error } = await supabase.rpc('list_teams_for_signin')
-  if (error) throw error
-  return (data ?? []) as TeamOption[]
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
-  const [team, setTeam] = useState<Team | null>(null)
+  const [player, setPlayer] = useState<Player | null>(null)
   const [ready, setReady] = useState(false)
 
-  const loadTeam = useCallback(async (uid: string | undefined) => {
+  const loadPlayer = useCallback(async (uid: string | undefined) => {
     if (!uid) {
-      setTeam(null)
+      setPlayer(null)
       return
     }
-    const { data } = await supabase.from('teams').select('*').eq('user_id', uid).maybeSingle()
-    setTeam((data as Team) ?? null)
+    const { data } = await supabase.from('players').select('*').eq('user_id', uid).maybeSingle()
+    setPlayer((data as Player) ?? null)
   }, [])
 
   useEffect(() => {
@@ -41,68 +35,68 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     supabase.auth.getSession().then(async ({ data }) => {
       if (!alive) return
       setSession(data.session)
-      await loadTeam(data.session?.user.id)
+      await loadPlayer(data.session?.user.id)
       if (alive) setReady(true)
     })
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, next) => {
       setSession(next)
-      void loadTeam(next?.user.id)
+      void loadPlayer(next?.user.id)
     })
     return () => {
       alive = false
       sub.subscription.unsubscribe()
     }
-  }, [loadTeam])
+  }, [loadPlayer])
 
-  const signIn = useCallback(
-    async (teamId: string, pin: string) => {
-      // The PIN never becomes the auth password. begin_signin checks it under a
-      // rate limiter and only then hands back the team's real credentials.
-      const { data, error } = await supabase.rpc('begin_signin', { p_team_id: teamId, p_pin: pin })
-      if (error) throw error
-      const { email, auth_key, needs_signup } = data as {
-        email: string
-        auth_key: string
-        needs_signup: boolean
-      }
-
-      if (needs_signup) {
-        const { error: signUpError } = await supabase.auth.signUp({ email, password: auth_key })
-        if (signUpError) {
-          // An earlier attempt created the user but never linked the team.
-          if (!/already registered|already exists/i.test(signUpError.message)) throw signUpError
-          const { error: retryError } = await supabase.auth.signInWithPassword({ email, password: auth_key })
-          if (retryError) throw retryError
-        }
-        const { error: linkError } = await supabase.rpc('link_account', { p_team_id: teamId, p_pin: pin })
-        if (linkError) throw linkError
-      } else {
-        const { error: signInError } = await supabase.auth.signInWithPassword({ email, password: auth_key })
+  const signUp = useCallback(
+    async (username: string, email: string, password: string) => {
+      const { error } = await supabase.auth.signUp({ email: email.trim(), password })
+      if (error) {
+        // Already registered — sign in and attach the username instead.
+        if (!/already registered|already exists/i.test(error.message)) throw error
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(), password,
+        })
         if (signInError) throw signInError
       }
 
+      // The username lives in our schema, not in Supabase Auth.
+      const { error: claimError } = await supabase.rpc('claim_account', { p_username: username.trim() })
+      if (claimError) throw claimError
+
       const { data: fresh } = await supabase.auth.getSession()
       setSession(fresh.session)
-      await loadTeam(fresh.session?.user.id)
+      await loadPlayer(fresh.session?.user.id)
     },
-    [loadTeam],
+    [loadPlayer],
+  )
+
+  const signIn = useCallback(
+    async (email: string, password: string) => {
+      const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+      if (error) throw error
+      const { data: fresh } = await supabase.auth.getSession()
+      setSession(fresh.session)
+      await loadPlayer(fresh.session?.user.id)
+    },
+    [loadPlayer],
   )
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut()
     setSession(null)
-    setTeam(null)
+    setPlayer(null)
   }, [])
 
-  const reloadTeam = useCallback(async () => {
+  const reloadPlayer = useCallback(async () => {
     const { data } = await supabase.auth.getSession()
-    await loadTeam(data.session?.user.id)
-  }, [loadTeam])
+    await loadPlayer(data.session?.user.id)
+  }, [loadPlayer])
 
   const value = useMemo(
-    () => ({ ready, session, team, signIn, signOut, reloadTeam }),
-    [ready, session, team, signIn, signOut, reloadTeam],
+    () => ({ ready, session, player, signUp, signIn, signOut, reloadPlayer }),
+    [ready, session, player, signUp, signIn, signOut, reloadPlayer],
   )
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }

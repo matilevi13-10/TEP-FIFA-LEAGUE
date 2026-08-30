@@ -2,21 +2,24 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../lib/auth'
 import { useLeague } from '../lib/league'
 import {
-  adminCreateTeam, adminDeleteTeam, adminResetPlayoffs, adminResolveMatch, adminSetPin,
-  adminSetRole, adminStartPlayoffs, adminUpdateSettings, adminUpdateTeam, adminVoidMatch,
+  adminCreatePlaceholder, adminCreateTeam, adminDeleteMessage, adminDeletePlayer,
+  adminDissolveTeam, adminRenamePlayer, adminResetPlayoffs, adminResolveMatch,
+  adminStartPlayoffs, adminUpdateSettings, adminUpdateTeam, adminVoidMatch,
 } from '../lib/actions'
 import { ConfirmButton } from '../components/ConfirmButton'
 import { useToast } from '../components/Toast'
 import { readableError } from '../lib/supabase'
 import { haptic, money, timeAgo } from '../lib/format'
-import type { Match, Team } from '../lib/types'
+import type { Match, Player, Team } from '../lib/types'
+
+type Run = (work: () => Promise<unknown>, message: string) => Promise<boolean>
 
 export function Admin() {
-  const { team } = useAuth()
+  const { player } = useAuth()
   const league = useLeague()
   const toast = useToast()
 
-  if (!team?.is_admin) {
+  if (!player?.is_admin) {
     return (
       <div className="page">
         <div className="section card center muted" style={{ padding: 30 }}>Admins only.</div>
@@ -24,7 +27,7 @@ export function Admin() {
     )
   }
 
-  const run = async (work: () => Promise<unknown>, message: string) => {
+  const run: Run = async (work, message) => {
     try {
       await work()
       haptic([10, 30, 10])
@@ -42,19 +45,20 @@ export function Admin() {
       <div className="section" style={{ marginBottom: 18 }}>
         <h1 style={{ fontSize: 26, fontWeight: 500, letterSpacing: '-0.02em', margin: 0 }}>Admin</h1>
         <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
-          {league.settings?.season_name} · {league.activeTeams.length} teams · pot {money(league.potCents)}
+          {league.settings?.season_name} · {league.activeTeams.length} teams ·{' '}
+          {league.pool.length} in the pool · pot {money(league.potCents)}
         </div>
       </div>
 
       <NeedsAttention run={run} />
       <SeasonSettings run={run} />
       <Playoffs run={run} />
-      <Teams run={run} />
+      <TeamsAdmin run={run} />
+      <PlayersAdmin run={run} />
+      <ChatModeration run={run} />
     </div>
   )
 }
-
-type Run = (work: () => Promise<unknown>, message: string) => Promise<boolean>
 
 // ── Disputes and pending results ──────────────────────────────────────────
 
@@ -62,20 +66,15 @@ function NeedsAttention({ run }: { run: Run }) {
   const league = useLeague()
   const flagged = league.matches.filter((m) => m.status === 'disputed')
   const waiting = league.matches.filter((m) => m.status === 'pending')
-
   if (flagged.length === 0 && waiting.length === 0) return null
 
   return (
     <section className="section">
       <div className="eyebrow" style={{ color: flagged.length ? 'var(--accent)' : undefined }}>
-        {flagged.length > 0
-          ? `${flagged.length} disputed`
-          : `${waiting.length} awaiting confirmation`}
+        {flagged.length > 0 ? `${flagged.length} disputed` : `${waiting.length} awaiting confirmation`}
       </div>
       <div className="stack">
-        {[...flagged, ...waiting].map((match) => (
-          <MatchRow key={match.id} match={match} run={run} />
-        ))}
+        {[...flagged, ...waiting].map((match) => <MatchRow key={match.id} match={match} run={run} />)}
       </div>
     </section>
   )
@@ -92,18 +91,14 @@ function MatchRow({ match, run }: { match: Match; run: Run }) {
   const submitter = league.teamById(match.submitted_by)
 
   const act = async (work: () => Promise<unknown>, message: string) => {
-    setBusy(true)
-    await run(work, message)
-    setBusy(false)
+    setBusy(true); await run(work, message); setBusy(false)
   }
 
   return (
     <div className="card">
       <div className="spread" style={{ marginBottom: 12 }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 500 }}>
-            {teamA?.name ?? '—'} vs {teamB?.name ?? '—'}
-          </div>
+          <div style={{ fontSize: 15, fontWeight: 500 }}>{teamA?.name ?? '—'} vs {teamB?.name ?? '—'}</div>
           <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
             {match.phase === 'playoff' ? 'Playoff' : 'League'} · sent by {submitter?.name ?? 'unknown'} ·{' '}
             {timeAgo(match.created_at)}
@@ -115,45 +110,36 @@ function MatchRow({ match, run }: { match: Match; run: Run }) {
       </div>
 
       <div className="row" style={{ gap: 8, marginBottom: 12 }}>
-        <input
-          className="input" inputMode="numeric" aria-label={`${teamA?.name} score`}
-          value={String(scoreA)}
+        <input className="input" inputMode="numeric" aria-label={`${teamA?.name} score`} value={String(scoreA)}
           onChange={(e) => setScoreA(Math.min(99, Number(e.target.value.replace(/\D/g, '') || 0)))}
-          style={{ textAlign: 'center', fontWeight: 700, fontSize: 18 }}
-        />
+          style={{ textAlign: 'center', fontWeight: 700, fontSize: 18 }} />
         <span className="dim">–</span>
-        <input
-          className="input" inputMode="numeric" aria-label={`${teamB?.name} score`}
-          value={String(scoreB)}
+        <input className="input" inputMode="numeric" aria-label={`${teamB?.name} score`} value={String(scoreB)}
           onChange={(e) => setScoreB(Math.min(99, Number(e.target.value.replace(/\D/g, '') || 0)))}
-          style={{ textAlign: 'center', fontWeight: 700, fontSize: 18 }}
-        />
+          style={{ textAlign: 'center', fontWeight: 700, fontSize: 18 }} />
       </div>
 
       <div className="row" style={{ gap: 8 }}>
-        <button
-          className="btn btn--primary btn--sm" disabled={busy} style={{ flex: 1 }}
-          onClick={() => act(() => adminResolveMatch(match.id, scoreA, scoreB, 'Settled by admin'), 'Result settled.')}
-        >
+        <button className="btn btn--primary btn--sm" disabled={busy} style={{ flex: 1 }}
+          onClick={() => act(() => adminResolveMatch(match.id, scoreA, scoreB, 'Settled by admin'), 'Result settled.')}>
           Settle at {scoreA}–{scoreB}
         </button>
-        <ConfirmButton
-          className="btn btn--danger btn--sm" disabled={busy}
+        <ConfirmButton className="btn btn--danger btn--sm" disabled={busy}
           label="Void" confirmLabel="Void it?"
-          onConfirm={() => act(() => adminVoidMatch(match.id, 'Voided by admin'), 'Match voided.')}
-        />
+          onConfirm={() => act(() => adminVoidMatch(match.id, 'Voided by admin'), 'Match voided.')} />
       </div>
     </div>
   )
 }
 
-// ── Season settings ───────────────────────────────────────────────────────
+// ── Season ────────────────────────────────────────────────────────────────
 
 function SeasonSettings({ run }: { run: Run }) {
   const { settings } = useLeague()
   const [name, setName] = useState('')
   const [games, setGames] = useState('10')
   const [buyIn, setBuyIn] = useState('50')
+  const [adminEmail, setAdminEmail] = useState('')
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
@@ -161,12 +147,16 @@ function SeasonSettings({ run }: { run: Run }) {
     setName(settings.season_name)
     setGames(String(settings.games_per_team))
     setBuyIn(String(settings.buy_in_cents / 100))
+    setAdminEmail(settings.admin_email ?? '')
   }, [settings])
 
   const save = async () => {
     setBusy(true)
     await run(
-      () => adminUpdateSettings(name, Number(games) || 1, Math.round((Number(buyIn) || 0) * 100), settings?.playoff_size ?? null),
+      () => adminUpdateSettings(
+        name, Number(games) || 1, Math.round((Number(buyIn) || 0) * 100),
+        settings?.playoff_size ?? null, adminEmail.trim() || null,
+      ),
       'Season updated.',
     )
     setBusy(false)
@@ -183,14 +173,22 @@ function SeasonSettings({ run }: { run: Run }) {
         <div className="row" style={{ gap: 10, alignItems: 'flex-end' }}>
           <div className="field" style={{ flex: 1 }}>
             <label className="field__label" htmlFor="games">Games per team</label>
-            <input id="games" className="input num" inputMode="numeric" value={games}
+            <input id="games" className="input" inputMode="numeric" value={games}
               onChange={(e) => setGames(e.target.value.replace(/\D/g, '').slice(0, 3))} />
           </div>
           <div className="field" style={{ flex: 1 }}>
             <label className="field__label" htmlFor="buyin">Buy-in ($)</label>
-            <input id="buyin" className="input num" inputMode="numeric" value={buyIn}
+            <input id="buyin" className="input" inputMode="numeric" value={buyIn}
               onChange={(e) => setBuyIn(e.target.value.replace(/[^\d.]/g, '').slice(0, 6))} />
           </div>
+        </div>
+        <div className="field">
+          <label className="field__label" htmlFor="admin-email">Admin account (email)</label>
+          <input id="admin-email" className="input" type="email" autoCapitalize="none"
+            value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
+          <p className="dim" style={{ margin: '2px 0 0', fontSize: 12 }}>
+            Whoever signs in with this address gets these controls. Changing it hands them over.
+          </p>
         </div>
         <button className="btn btn--ghost btn--block" disabled={busy} onClick={save}>
           {busy ? 'Saving…' : 'Save season settings'}
@@ -214,12 +212,6 @@ function Playoffs({ run }: { run: Run }) {
   const unsettled = matches.filter((m) => m.phase === 'league' && (m.status === 'pending' || m.status === 'disputed')).length
   const tooFew = activeTeams.length < size
 
-  const start = async () => {
-    setBusy(true)
-    await run(() => adminStartPlayoffs(size), `${size}-team bracket is live.`)
-    setBusy(false)
-  }
-
   return (
     <section className="section">
       <div className="eyebrow">Playoffs</div>
@@ -228,13 +220,9 @@ function Playoffs({ run }: { run: Run }) {
           <span className="field__label">Teams that qualify</span>
           <div className="row" style={{ gap: 8 }}>
             {[4, 8, 16].map((option) => (
-              <button
-                key={option}
-                className={`btn ${size === option ? 'btn--primary' : 'btn--ghost'}`}
-                disabled={started}
-                onClick={() => { haptic(); setSize(option) }}
-                style={{ flex: 1, minHeight: 48 }}
-              >
+              <button key={option} className={`btn ${size === option ? 'btn--primary' : 'btn--ghost'}`}
+                disabled={started} onClick={() => { haptic(); setSize(option) }}
+                style={{ flex: 1, minHeight: 48 }}>
                 {option}
               </button>
             ))}
@@ -246,15 +234,12 @@ function Playoffs({ run }: { run: Run }) {
             <p className="muted" style={{ margin: 0, fontSize: 13 }}>
               {settings?.phase === 'complete'
                 ? 'The season is finished — a champion has been crowned.'
-                : `The bracket is live and the league table is locked.`}
+                : 'The bracket is live and the league table is locked.'}
             </p>
-            <ConfirmButton
-              className="btn btn--danger btn--block"
-              label="Tear down the bracket"
-              confirmLabel="Delete the bracket and reopen the league?"
+            <ConfirmButton className="btn btn--danger btn--block"
+              label="Tear down the bracket" confirmLabel="Delete the bracket and reopen the league?"
               disabled={busy}
-              onConfirm={() => { void run(() => adminResetPlayoffs(), 'Back to the league phase.') }}
-            />
+              onConfirm={() => { void run(() => adminResetPlayoffs(), 'Back to the league phase.') }} />
           </>
         ) : (
           <>
@@ -262,12 +247,9 @@ function Playoffs({ run }: { run: Run }) {
               Starting the playoffs locks the league — no more league results after that. The top {size} seed
               into the bracket.
               {unsettled > 0 && (
-                <>
-                  {' '}
-                  <span style={{ color: 'var(--accent)' }}>
-                    {unsettled} unconfirmed {unsettled === 1 ? 'result' : 'results'} will be voided.
-                  </span>
-                </>
+                <> <span style={{ color: 'var(--accent)' }}>
+                  {unsettled} unconfirmed {unsettled === 1 ? 'result' : 'results'} will be voided.
+                </span></>
               )}
             </p>
             {tooFew && (
@@ -275,13 +257,10 @@ function Playoffs({ run }: { run: Run }) {
                 Only {activeTeams.length} active teams — you need {size}.
               </p>
             )}
-            <ConfirmButton
-              className="btn btn--primary btn--block"
-              label={`Start the ${size}-team playoffs`}
-              confirmLabel="Confirm — lock the league"
+            <ConfirmButton className="btn btn--primary btn--block"
+              label={`Start the ${size}-team playoffs`} confirmLabel="Confirm — lock the league"
               disabled={busy || tooFew}
-              onConfirm={start}
-            />
+              onConfirm={async () => { setBusy(true); await run(() => adminStartPlayoffs(size), `${size}-team bracket is live.`); setBusy(false) }} />
           </>
         )}
       </div>
@@ -291,71 +270,68 @@ function Playoffs({ run }: { run: Run }) {
 
 // ── Teams ─────────────────────────────────────────────────────────────────
 
-function Teams({ run }: { run: Run }) {
+function TeamsAdmin({ run }: { run: Run }) {
   const league = useLeague()
-  const [adding, setAdding] = useState(false)
+  const [pairing, setPairing] = useState(false)
+  const [name, setName] = useState('')
+  const [a, setA] = useState('')
+  const [b, setB] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const create = async () => {
+    setBusy(true)
+    const ok = await run(() => adminCreateTeam(name, a, b), `${name.trim()} created.`)
+    setBusy(false)
+    if (ok) { setName(''); setA(''); setB(''); setPairing(false) }
+  }
 
   return (
     <section className="section">
       <div className="spread" style={{ marginBottom: 10 }}>
         <div className="eyebrow" style={{ margin: '0 0 0 2px' }}>Teams</div>
-        <button className="btn btn--quiet btn--sm" style={{ padding: 0 }} onClick={() => setAdding((v) => !v)}>
-          {adding ? 'Cancel' : '+ Add team'}
+        <button className="btn btn--quiet btn--sm" style={{ padding: 0 }} onClick={() => setPairing((v) => !v)}>
+          {pairing ? 'Cancel' : '+ Pair two players'}
         </button>
       </div>
 
       <div className="stack">
-        {adding && <AddTeam run={run} onDone={() => setAdding(false)} />}
+        {pairing && (
+          <div className="card card--accent stack">
+            <p className="dim" style={{ margin: 0, fontSize: 12.5 }}>
+              Players normally pair up themselves on the Teams page. Use this when they can't.
+            </p>
+            <div className="field">
+              <label className="field__label" htmlFor="pair-name">Team name</label>
+              <input id="pair-name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <div className="row" style={{ gap: 10 }}>
+              <div className="field" style={{ flex: 1 }}>
+                <label className="field__label" htmlFor="pair-a">Player 1</label>
+                <select id="pair-a" className="input" value={a} onChange={(e) => setA(e.target.value)}>
+                  <option value="">Choose…</option>
+                  {league.pool.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label className="field__label" htmlFor="pair-b">Player 2</label>
+                <select id="pair-b" className="input" value={b} onChange={(e) => setB(e.target.value)}>
+                  <option value="">Choose…</option>
+                  {league.pool.filter((p) => p.id !== a).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+            </div>
+            <button className="btn btn--primary btn--block"
+              disabled={busy || !name.trim() || !a || !b || a === b} onClick={create}>
+              {busy ? 'Creating…' : 'Create team'}
+            </button>
+          </div>
+        )}
+        {league.teams.length === 0 && !pairing && (
+          <div className="card center muted" style={{ padding: 24, fontSize: 14 }}>No teams yet.</div>
+        )}
         {league.teams.map((team) => <TeamRow key={team.id} team={team} run={run} />)}
       </div>
     </section>
-  )
-}
-
-function AddTeam({ run, onDone }: { run: Run; onDone: () => void }) {
-  const [name, setName] = useState('')
-  const [one, setOne] = useState('')
-  const [two, setTwo] = useState('')
-  const [pin, setPin] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const valid = name.trim() && one.trim() && two.trim() && /^\d{4}$/.test(pin)
-
-  const create = async () => {
-    setBusy(true)
-    const ok = await run(() => adminCreateTeam(name, one, two, pin), `${name.trim()} is in.`)
-    setBusy(false)
-    if (ok) { setName(''); setOne(''); setTwo(''); setPin(''); onDone() }
-  }
-
-  return (
-    <div className="card card--accent stack">
-      <div className="field">
-        <label className="field__label" htmlFor="new-name">Team name</label>
-        <input id="new-name" className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="Los Galácticos" />
-      </div>
-      <div className="row" style={{ gap: 10 }}>
-        <div className="field" style={{ flex: 1 }}>
-          <label className="field__label" htmlFor="new-p1">Player 1</label>
-          <input id="new-p1" className="input" value={one} onChange={(e) => setOne(e.target.value)} />
-        </div>
-        <div className="field" style={{ flex: 1 }}>
-          <label className="field__label" htmlFor="new-p2">Player 2</label>
-          <input id="new-p2" className="input" value={two} onChange={(e) => setTwo(e.target.value)} />
-        </div>
-      </div>
-      <div className="field">
-        <label className="field__label" htmlFor="new-pin">4-digit PIN</label>
-        <input
-          id="new-pin" className="input num" inputMode="numeric" value={pin} placeholder="0000"
-          onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-          style={{ letterSpacing: '0.3em' }}
-        />
-      </div>
-      <button className="btn btn--primary btn--block" disabled={!valid || busy} onClick={create}>
-        {busy ? 'Creating…' : 'Create team'}
-      </button>
-    </div>
   )
 }
 
@@ -364,42 +340,26 @@ function TeamRow({ team, run }: { team: Team; run: Run }) {
   const roster = league.playersFor(team.id)
   const [open, setOpen] = useState(false)
   const [name, setName] = useState(team.name)
-  const [one, setOne] = useState(roster[0] ?? '')
-  const [two, setTwo] = useState(roster[1] ?? '')
   const [active, setActive] = useState(team.is_active)
   const [paid, setPaid] = useState(team.paid)
-  const [pin, setPin] = useState('')
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => {
-    setName(team.name); setOne(roster[0] ?? ''); setTwo(roster[1] ?? '')
-    setActive(team.is_active); setPaid(team.paid)
-    // roster is rebuilt on every render, so key the effect on its contents
-  }, [team, roster.join('\u0000')]) // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { setName(team.name); setActive(team.is_active); setPaid(team.paid) }, [team])
 
   const act = async (work: () => Promise<unknown>, message: string) => {
-    setBusy(true)
-    await run(work, message)
-    setBusy(false)
+    setBusy(true); await run(work, message); setBusy(false)
   }
 
   return (
     <div className="card" style={{ padding: open ? 18 : '14px 16px' }}>
-      <button
-        className="spread"
-        onClick={() => setOpen((v) => !v)}
-        style={{ width: '100%', textAlign: 'left', minHeight: 34 }}
-      >
+      <button className="spread" onClick={() => setOpen((v) => !v)} style={{ width: '100%', textAlign: 'left', minHeight: 34 }}>
         <span style={{ minWidth: 0 }}>
           <span style={{ display: 'block', fontSize: 15, fontWeight: 500 }}>
             {team.name}
-            {team.is_admin && <span className="pill pill--accent" style={{ marginLeft: 8, height: 20, fontSize: 10.5 }}>Admin</span>}
             {!team.is_active && <span className="pill" style={{ marginLeft: 8, height: 20, fontSize: 10.5 }}>Inactive</span>}
           </span>
           <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3)' }}>
-            {roster.join(' & ')}
-            {team.is_active && ` · ${team.paid ? 'paid' : 'unpaid'}`}
-            {!team.user_id && ' · never signed in'}
+            {roster.join(' & ') || 'No players'} · {team.paid ? 'paid' : 'unpaid'}
           </span>
         </span>
         <span className="dim" style={{ fontSize: 13, flexShrink: 0 }}>{open ? 'Close' : 'Edit'}</span>
@@ -408,67 +368,24 @@ function TeamRow({ team, run }: { team: Team; run: Run }) {
       {open && (
         <div className="stack" style={{ marginTop: 16 }}>
           <div className="field">
-            <label className="field__label" htmlFor={`n-${team.id}`}>Team name</label>
-            <input id={`n-${team.id}`} className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            <label className="field__label" htmlFor={`tn-${team.id}`}>Team name</label>
+            <input id={`tn-${team.id}`} className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="row" style={{ gap: 10 }}>
-            <div className="field" style={{ flex: 1 }}>
-              <label className="field__label" htmlFor={`a-${team.id}`}>Player 1</label>
-              <input id={`a-${team.id}`} className="input" value={one} onChange={(e) => setOne(e.target.value)} />
-            </div>
-            <div className="field" style={{ flex: 1 }}>
-              <label className="field__label" htmlFor={`b-${team.id}`}>Player 2</label>
-              <input id={`b-${team.id}`} className="input" value={two} onChange={(e) => setTwo(e.target.value)} />
-            </div>
-          </div>
-
           <div className="row" style={{ gap: 8 }}>
             <Toggle label="In the league" on={active} onClick={() => setActive((v) => !v)} />
             <Toggle label="Buy-in paid" on={paid} onClick={() => setPaid((v) => !v)} />
           </div>
-
-          <button
-            className="btn btn--primary btn--block" disabled={busy}
-            onClick={() => act(() => adminUpdateTeam(team.id, name, one, two, active, paid), 'Team updated.')}
-          >
+          <button className="btn btn--primary btn--block" disabled={busy}
+            onClick={() => act(() => adminUpdateTeam(team.id, name, active, paid), 'Team updated.')}>
             Save changes
           </button>
-
           <div className="divider" />
-
-          <div className="field">
-            <label className="field__label" htmlFor={`p-${team.id}`}>Reset PIN</label>
-            <div className="row" style={{ gap: 8 }}>
-              <input
-                id={`p-${team.id}`} className="input num" inputMode="numeric" placeholder="New 4-digit PIN"
-                value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                style={{ letterSpacing: '0.2em' }}
-              />
-              <button
-                className="btn btn--ghost" disabled={!/^\d{4}$/.test(pin) || busy}
-                onClick={() => act(async () => { await adminSetPin(team.id, pin); setPin('') }, `PIN reset for ${team.name}.`)}
-              >
-                Set
-              </button>
-            </div>
-          </div>
-
-          <div className="row" style={{ gap: 8 }}>
-            <ConfirmButton
-              className="btn btn--ghost btn--sm" style={{ flex: 1 }} disabled={busy}
-              label={team.is_admin ? 'Remove admin' : 'Make admin'}
-              confirmLabel="Sure?"
-              onConfirm={() => act(() => adminSetRole(team.id, !team.is_admin), 'Role updated.')}
-            />
-            <ConfirmButton
-              className="btn btn--danger btn--sm" style={{ flex: 1 }}
-              disabled={busy || league.settings?.phase !== 'league'}
-              label="Delete team" confirmLabel="Delete for good?"
-              onConfirm={() => act(() => adminDeleteTeam(team.id), `${team.name} removed.`)}
-            />
-          </div>
+          <ConfirmButton className="btn btn--danger btn--block"
+            disabled={busy || league.settings?.phase !== 'league'}
+            label="Dissolve team" confirmLabel="Break them up and delete their results?"
+            onConfirm={() => act(() => adminDissolveTeam(team.id), `${team.name} dissolved.`)} />
           <p className="dim" style={{ fontSize: 11.5, margin: 0 }}>
-            Deleting a team also deletes its results. Only possible during the league phase.
+            Both players go back to the player pool. Their matches are deleted, so this is league-phase only.
           </p>
         </div>
       )}
@@ -476,14 +393,148 @@ function TeamRow({ team, run }: { team: Team; run: Run }) {
   )
 }
 
+// ── Players ───────────────────────────────────────────────────────────────
+
+function PlayersAdmin({ run }: { run: Run }) {
+  const league = useLeague()
+  const [adding, setAdding] = useState(false)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const create = async () => {
+    setBusy(true)
+    const ok = await run(() => adminCreatePlaceholder(name), `${name.trim()} added.`)
+    setBusy(false)
+    if (ok) { setName(''); setAdding(false) }
+  }
+
+  return (
+    <section className="section">
+      <div className="spread" style={{ marginBottom: 10 }}>
+        <div className="eyebrow" style={{ margin: '0 0 0 2px' }}>Players</div>
+        <button className="btn btn--quiet btn--sm" style={{ padding: 0 }} onClick={() => setAdding((v) => !v)}>
+          {adding ? 'Cancel' : '+ Add placeholder'}
+        </button>
+      </div>
+
+      <div className="stack">
+        {adding && (
+          <div className="card card--accent stack">
+            <div className="field">
+              <label className="field__label" htmlFor="np-name">Name</label>
+              <input id="np-name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
+            </div>
+            <p className="dim" style={{ margin: 0, fontSize: 12.5 }}>
+              Creates a name others can put on a team. That person claims it by signing up
+              with the same username — there is no password to set here.
+            </p>
+            <button className="btn btn--primary btn--block"
+              disabled={busy || !name.trim()} onClick={create}>
+              {busy ? 'Adding…' : 'Add placeholder'}
+            </button>
+          </div>
+        )}
+        {league.players.map((p) => <PlayerRow key={p.id} player={p} run={run} />)}
+      </div>
+    </section>
+  )
+}
+
+function PlayerRow({ player, run }: { player: Player; run: Run }) {
+  const league = useLeague()
+  const [open, setOpen] = useState(false)
+  const [name, setName] = useState(player.name)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => { setName(player.name) }, [player])
+
+  const act = async (work: () => Promise<unknown>, message: string) => {
+    setBusy(true); await run(work, message); setBusy(false)
+  }
+  const team = league.teamById(player.team_id)
+
+  return (
+    <div className="card" style={{ padding: open ? 18 : '13px 16px' }}>
+      <button className="spread" onClick={() => setOpen((v) => !v)} style={{ width: '100%', textAlign: 'left', minHeight: 32 }}>
+        <span style={{ minWidth: 0 }}>
+          <span style={{ display: 'block', fontSize: 15, fontWeight: 500 }}>
+            {player.name}
+            {player.is_admin && <span className="pill pill--accent" style={{ marginLeft: 8, height: 20, fontSize: 10.5 }}>Admin</span>}
+          </span>
+          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3)' }}>
+            {team ? team.name : 'No team'}
+            {player.email ? ` · ${player.email}` : ' · not signed up yet'}
+          </span>
+        </span>
+        <span className="dim" style={{ fontSize: 13, flexShrink: 0 }}>{open ? 'Close' : 'Edit'}</span>
+      </button>
+
+      {open && (
+        <div className="stack" style={{ marginTop: 16 }}>
+          <div className="field">
+            <label className="field__label" htmlFor={`pn-${player.id}`}>Name</label>
+            <div className="row" style={{ gap: 8 }}>
+              <input id={`pn-${player.id}`} className="input" value={name} onChange={(e) => setName(e.target.value)} />
+              <button className="btn btn--ghost" disabled={busy || name.trim() === player.name}
+                onClick={() => act(() => adminRenamePlayer(player.id, name), 'Name updated.')}>
+                Save
+              </button>
+            </div>
+          </div>
+
+          <ConfirmButton className="btn btn--danger btn--block"
+            disabled={busy || player.team_id !== null}
+            label="Delete" confirmLabel="Delete for good?"
+            onConfirm={() => act(() => adminDeletePlayer(player.id), `${player.name} removed.`)} />
+          {player.team_id !== null && (
+            <p className="dim" style={{ fontSize: 11.5, margin: 0 }}>
+              Dissolve their team before deleting them.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Chat moderation ───────────────────────────────────────────────────────
+
+function ChatModeration({ run }: { run: Run }) {
+  const league = useLeague()
+  const recent = [...league.messages].reverse().slice(0, 25)
+
+  return (
+    <section className="section">
+      <div className="eyebrow">Chat</div>
+      {recent.length === 0 ? (
+        <div className="card center muted" style={{ padding: 24, fontSize: 14 }}>No messages yet.</div>
+      ) : (
+        <div className="card card--flat">
+          {recent.map((message, index) => (
+            <div key={message.id} className="spread"
+              style={{ padding: '11px 15px', borderTop: index === 0 ? 'none' : '1px solid var(--line)', gap: 10 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+                  {message.kind === 'result' ? 'Result' : message.kind === 'taunt' ? 'Taunt' : message.author_name}
+                  {message.team_name && ` · ${message.team_name}`} · {timeAgo(message.created_at)}
+                </div>
+                <div style={{ fontSize: 13.5, overflowWrap: 'anywhere' }}>{message.body}</div>
+              </div>
+              <ConfirmButton className="btn btn--quiet btn--sm" style={{ flexShrink: 0, color: 'var(--danger)' }}
+                label="Delete" confirmLabel="Sure?"
+                onConfirm={() => { void run(() => adminDeleteMessage(message.id), 'Message deleted.') }} />
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
 function Toggle({ label, on, onClick }: { label: string; on: boolean; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={() => { haptic(); onClick() }}
-      className={`btn btn--sm ${on ? 'btn--primary' : 'btn--ghost'}`}
-      style={{ flex: 1, minHeight: 44 }}
-    >
+    <button type="button" onClick={() => { haptic(); onClick() }}
+      className={`btn btn--sm ${on ? 'btn--primary' : 'btn--ghost'}`} style={{ flex: 1, minHeight: 44 }}>
       {label}
     </button>
   )

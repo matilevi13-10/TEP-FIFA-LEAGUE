@@ -1,176 +1,107 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Logo } from '../components/Logo'
-import { IconBackspace, IconChevron, IconSpinner } from '../components/Icons'
-import { fetchTeamOptions, useAuth } from '../lib/auth'
+import { useAuth } from '../lib/auth'
 import { isConfigured, readableError } from '../lib/supabase'
 import { haptic } from '../lib/format'
-import type { TeamOption } from '../lib/types'
 
-const KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del']
+type Mode = 'in' | 'up'
 
 export function SignIn() {
-  const { signIn } = useAuth()
-  const [teams, setTeams] = useState<TeamOption[] | null>(null)
-  const [chosen, setChosen] = useState<TeamOption | null>(null)
-  const [pin, setPin] = useState('')
+  const { signIn, signUp } = useAuth()
+  const [mode, setMode] = useState<Mode>('in')
+  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const loadTeams = useCallback(() => {
-    if (!isConfigured) return
-    setError(null)
-    fetchTeamOptions()
-      .then(setTeams)
-      .catch((cause) => setError(readableError(cause)))
-  }, [])
+  const creating = mode === 'up'
+  const ready = creating
+    ? username.trim().length > 0 && email.trim().length > 3 && password.length >= 6
+    : email.trim().length > 3 && password.length > 0
 
-  useEffect(loadTeams, [loadTeams])
-
-  // Fires the moment the fourth digit lands — no submit button to hunt for.
-  useEffect(() => {
-    if (pin.length !== 4 || !chosen || busy) return
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!ready || busy) return
     setBusy(true)
     setError(null)
-    signIn(chosen.id, pin)
-      .then(() => haptic([10, 40, 10]))
-      .catch((cause) => {
-        setError(readableError(cause))
-        setPin('')
-        haptic([40, 30, 40])
-      })
-      .finally(() => setBusy(false))
-  }, [pin, chosen, busy, signIn])
+    try {
+      if (creating) await signUp(username, email, password)
+      else await signIn(email, password)
+      haptic([10, 40, 10])
+    } catch (cause) {
+      setError(readableError(cause))
+      haptic([40, 30, 40])
+    } finally {
+      setBusy(false)
+    }
+  }
 
   if (!isConfigured) {
     return (
       <Shell>
         <div className="card" style={{ textAlign: 'left' }}>
           <div className="eyebrow">Setup needed</div>
-          <p style={{ margin: '0 0 10px' }}>
+          <p style={{ margin: 0 }}>
             This build has no Supabase credentials. Locally, put them in <code>.env</code> and restart.
             On Amplify, set them under App settings &rarr; Environment variables, then redeploy.
           </p>
-          <pre style={{
-            margin: 0, padding: 12, borderRadius: 12, background: 'rgba(0,0,0,0.45)',
-            border: '1px solid var(--line)', fontSize: 12, overflowX: 'auto', color: 'var(--text-2)',
-          }}>
-{`VITE_SUPABASE_URL=https://xxx.supabase.co
-VITE_SUPABASE_ANON_KEY=eyJ...`}
-          </pre>
         </div>
-      </Shell>
-    )
-  }
-
-  if (!chosen) {
-    return (
-      <Shell>
-        {teams === null && error ? (
-          <div className="card" style={{ textAlign: 'left' }}>
-            <div className="eyebrow">Can't reach the league</div>
-            <p style={{ margin: '0 0 14px' }}>{error}</p>
-            <button className="btn btn--ghost btn--block" onClick={loadTeams}>Try again</button>
-          </div>
-        ) : teams === null ? (
-          <div className="stack">
-            {[0, 1, 2, 3].map((i) => <div key={i} className="skeleton" style={{ height: 62 }} />)}
-          </div>
-        ) : (
-          <div className="stack">
-            <div className="eyebrow" style={{ textAlign: 'center', marginBottom: 2 }}>Who are you?</div>
-            {teams.map((team) => (
-              <button
-                key={team.id}
-                className="card"
-                onClick={() => { haptic(); setChosen(team); setError(null) }}
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                  gap: 12, textAlign: 'left', width: '100%', minHeight: 62, padding: '14px 16px',
-                }}
-              >
-                <span style={{ minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: 16, fontWeight: 500 }}>{team.name}</span>
-                  <span style={{ display: 'block', fontSize: 13, color: 'var(--text-3)' }}>
-                    {team.player_one} &amp; {team.player_two}
-                  </span>
-                </span>
-                <span style={{ width: 18, height: 18, color: 'var(--text-3)', flexShrink: 0 }}>
-                  <IconChevron />
-                </span>
-              </button>
-            ))}
-            {teams.length === 0 && (
-              <p className="center dim" style={{ fontSize: 14 }}>
-                No teams yet. Sign in as the admin account to create them.
-              </p>
-            )}
-          </div>
-        )}
-        {error && teams !== null && (
-          <p className="center" style={{ color: 'var(--danger)', fontSize: 14 }}>{error}</p>
-        )}
       </Shell>
     )
   }
 
   return (
     <Shell>
-      <div className="center" style={{ marginBottom: 4 }}>
-        <div style={{ fontSize: 19, fontWeight: 500 }}>{chosen.name}</div>
-        <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
-          {chosen.player_one} &amp; {chosen.player_two}
-        </div>
-      </div>
-
-      <div className="row" style={{ justifyContent: 'center', gap: 14, height: 26 }}>
-        {[0, 1, 2, 3].map((index) => (
-          <span
-            key={index}
-            style={{
-              width: 13, height: 13, borderRadius: '50%',
-              background: index < pin.length ? 'var(--accent)' : 'transparent',
-              border: `1.5px solid ${index < pin.length ? 'var(--accent)' : 'var(--line-hi)'}`,
-              boxShadow: index < pin.length ? '0 0 12px var(--glow)' : 'none',
-              transition: 'all 160ms var(--ease)',
-            }}
-          />
-        ))}
-      </div>
-
-      <div style={{ minHeight: 22, textAlign: 'center' }}>
-        {busy && <span className="dim" style={{ fontSize: 13 }}>Signing you in…</span>}
-        {!busy && error && <span style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</span>}
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, maxWidth: 300, margin: '0 auto', width: '100%' }}>
-        {KEYS.map((key, index) =>
-          key === '' ? (
-            <span key={index} />
-          ) : (
-            <button
-              key={index}
-              className="btn btn--ghost"
-              disabled={busy}
-              onClick={() => {
-                haptic()
-                setError(null)
-                setPin((current) => (key === 'del' ? current.slice(0, -1) : (current + key).slice(0, 4)))
-              }}
-              aria-label={key === 'del' ? 'Delete' : key}
-              style={{ minHeight: 62, fontSize: 23, fontWeight: 500 }}
-            >
-              {key === 'del' ? <span style={{ width: 21, height: 21, display: 'block' }}><IconBackspace /></span> : key}
-            </button>
-          ),
+      <form className="card stack" onSubmit={submit}>
+        {creating && (
+          <div className="field">
+            <label className="field__label" htmlFor="username">Username</label>
+            <input
+              id="username" className="input" autoFocus autoCapitalize="none" maxLength={40}
+              autoComplete="username" placeholder="What everyone calls you"
+              value={username} onChange={(e) => setUsername(e.target.value)}
+            />
+          </div>
         )}
-      </div>
+
+        <div className="field">
+          <label className="field__label" htmlFor="email">Email</label>
+          <input
+            id="email" className="input" type="email" autoCapitalize="none" autoCorrect="off"
+            autoComplete="email" autoFocus={!creating} placeholder="you@example.com"
+            value={email} onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
+
+        <div className="field">
+          <label className="field__label" htmlFor="password">Password</label>
+          <input
+            id="password" className="input" type="password"
+            autoComplete={creating ? 'new-password' : 'current-password'}
+            placeholder={creating ? 'At least 6 characters' : ''}
+            value={password} onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+
+        {error && <p style={{ margin: 0, color: 'var(--danger)', fontSize: 13.5 }}>{error}</p>}
+
+        <button className="btn btn--primary btn--block" type="submit" disabled={!ready || busy}>
+          {busy ? (creating ? 'Creating your account…' : 'Signing in…') : creating ? 'Create account' : 'Sign in'}
+        </button>
+
+        {creating && (
+          <p className="dim center" style={{ margin: 0, fontSize: 12.5 }}>
+            Your username is how you show up in the table, the chat and on your team.
+          </p>
+        )}
+      </form>
 
       <button
         className="btn btn--quiet"
-        onClick={() => { setChosen(null); setPin(''); setError(null) }}
-        style={{ margin: '0 auto' }}
+        onClick={() => { haptic(); setMode(creating ? 'in' : 'up'); setError(null) }}
       >
-        {busy ? <span style={{ width: 16, height: 16 }}><IconSpinner /></span> : 'Not your team?'}
+        {creating ? 'I already have an account' : "First time? Create an account"}
       </button>
     </Shell>
   )
@@ -181,9 +112,9 @@ function Shell({ children }: { children: React.ReactNode }) {
     <div
       style={{
         minHeight: '100dvh', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center', gap: 22,
+        alignItems: 'center', justifyContent: 'center', gap: 20,
         padding: 'calc(var(--safe-t) + 40px) var(--gutter) calc(var(--safe-b) + 40px)',
-        width: '100%', maxWidth: 460, margin: '0 auto',
+        width: '100%', maxWidth: 420, margin: '0 auto',
         animation: 'enter 420ms var(--ease) both',
       }}
     >

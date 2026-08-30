@@ -7,6 +7,21 @@ async function call<T = unknown>(fn: string, args: Record<string, unknown> = {})
   return data as T
 }
 
+// ── Account ───────────────────────────────────────────────────────────────
+/** Attaches a username to the freshly created auth user, or claims a placeholder. */
+export const claimAccount = (username: string) =>
+  call<string>('claim_account', { p_username: username })
+
+// ── Teams ─────────────────────────────────────────────────────────────────
+/** Teammate is either an existing account, or a name they claim when they join. */
+export const createTeam = (
+  name: string, teammateId: string | null, teammateName: string | null,
+) =>
+  call<string>('create_team', {
+    p_name: name, p_teammate_id: teammateId, p_teammate_name: teammateName,
+  })
+
+// ── Matches ───────────────────────────────────────────────────────────────
 export const submitLeagueResult = (opponentId: string, myScore: number, opponentScore: number) =>
   call<string>('submit_league_result', {
     p_opponent: opponentId, p_my_score: myScore, p_opp_score: opponentScore,
@@ -21,33 +36,42 @@ export const confirmMatch = (matchId: string) => call('confirm_match', { p_match
 export const disputeMatch = (matchId: string) => call('dispute_match', { p_match_id: matchId })
 export const cancelSubmission = (matchId: string) => call('cancel_submission', { p_match_id: matchId })
 
-export const adminCreateTeam = (name: string, playerOne: string, playerTwo: string, pin: string) =>
-  call<string>('admin_create_team', {
-    p_name: name, p_player_one: playerOne, p_player_two: playerTwo, p_pin: pin,
-  })
+// ── Chat ──────────────────────────────────────────────────────────────────
+export const postMessage = (body: string) => call<string>('post_message', { p_body: body })
+export const postTaunt = (matchId: string, body: string) =>
+  call<string>('post_taunt', { p_match_id: matchId, p_body: body })
 
-export const adminUpdateTeam = (
-  teamId: string, name: string, playerOne: string, playerTwo: string, isActive: boolean, paid: boolean,
-) =>
+// ── Admin ─────────────────────────────────────────────────────────────────
+export const adminCreatePlaceholder = (name: string) =>
+  call<string>('admin_create_placeholder', { p_name: name })
+
+export const adminRenamePlayer = (playerId: string, name: string) =>
+  call('admin_rename_player', { p_player_id: playerId, p_name: name })
+
+export const adminDeletePlayer = (playerId: string) =>
+  call('admin_delete_player', { p_player_id: playerId })
+
+export const adminCreateTeam = (name: string, playerA: string, playerB: string) =>
+  call<string>('admin_create_team', { p_name: name, p_player_a: playerA, p_player_b: playerB })
+
+export const adminUpdateTeam = (teamId: string, name: string, isActive: boolean, paid: boolean) =>
   call('admin_update_team', {
-    p_team_id: teamId, p_name: name, p_player_one: playerOne,
-    p_player_two: playerTwo, p_is_active: isActive, p_paid: paid,
+    p_team_id: teamId, p_name: name, p_is_active: isActive, p_paid: paid,
   })
 
-export const adminSetPin = (teamId: string, pin: string) =>
-  call('admin_set_pin', { p_team_id: teamId, p_pin: pin })
+export const adminDissolveTeam = (teamId: string) =>
+  call('admin_dissolve_team', { p_team_id: teamId })
 
-export const adminSetRole = (teamId: string, isAdmin: boolean) =>
-  call('admin_set_role', { p_team_id: teamId, p_is_admin: isAdmin })
-
-export const adminDeleteTeam = (teamId: string) => call('admin_delete_team', { p_team_id: teamId })
+export const adminDeleteMessage = (messageId: string) =>
+  call('admin_delete_message', { p_message_id: messageId })
 
 export const adminUpdateSettings = (
-  seasonName: string, gamesPerTeam: number, buyInCents: number, playoffSize: number | null,
+  seasonName: string, gamesPerTeam: number, buyInCents: number,
+  playoffSize: number | null, adminEmail: string | null = null,
 ) =>
   call('admin_update_settings', {
     p_season_name: seasonName, p_games_per_team: gamesPerTeam,
-    p_buy_in_cents: buyInCents, p_playoff_size: playoffSize,
+    p_buy_in_cents: buyInCents, p_playoff_size: playoffSize, p_admin_email: adminEmail,
   })
 
 export const adminStartPlayoffs = (size: number) => call('admin_start_playoffs', { p_size: size })

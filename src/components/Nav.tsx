@@ -1,22 +1,22 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useLeague } from '../lib/league'
-import { IconAdmin, IconBracket, IconHome, IconSubmit, IconTable } from './Icons'
+import { IconAdmin, IconBracket, IconHome, IconSubmit, IconTeams } from './Icons'
 
 interface Item { to: string; label: string; icon: JSX.Element; badge?: number }
 
 function useNavItems(): Item[] {
-  const { team } = useAuth()
+  const { player } = useAuth()
   const { settings, pendingForMe } = useLeague()
   const inPlayoffs = settings?.phase === 'playoffs' || settings?.phase === 'complete'
 
   const items: Item[] = [
-    { to: '/', label: 'My Team', icon: <IconHome />, badge: pendingForMe.length },
-    { to: '/table', label: 'Table', icon: <IconTable /> },
-    { to: '/submit', label: 'Submit', icon: <IconSubmit /> },
+    { to: '/', label: 'League', icon: <IconHome />, badge: pendingForMe.length },
+    { to: '/teams', label: 'Teams', icon: <IconTeams /> },
   ]
+  if (player?.team_id) items.push({ to: '/submit', label: 'Submit', icon: <IconSubmit /> })
   if (inPlayoffs) items.push({ to: '/bracket', label: 'Bracket', icon: <IconBracket /> })
-  if (team?.is_admin) items.push({ to: '/admin', label: 'Admin', icon: <IconAdmin /> })
+  if (player?.is_admin) items.push({ to: '/admin', label: 'Admin', icon: <IconAdmin /> })
   return items
 }
 

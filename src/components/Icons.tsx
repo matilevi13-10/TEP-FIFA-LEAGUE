@@ -44,3 +44,13 @@ export const IconSpinner = () => (
 export const IconBackspace = () => (
   <svg {...base}><path d="M8.6 5.5h10.4a1.5 1.5 0 0 1 1.5 1.5v10a1.5 1.5 0 0 1-1.5 1.5H8.6L3.2 12Z" /><path d="M11.8 9.8 16 14M16 9.8 11.8 14" /></svg>
 )
+export const IconChat = () => (
+  <svg {...base} strokeWidth={1.9}><path d="M20.5 11.6c0 4-3.8 7.2-8.5 7.2a9.7 9.7 0 0 1-2.4-.3L4.5 20.5l1.3-3.6a6.8 6.8 0 0 1-2.3-5c0-4 3.8-7.3 8.5-7.3s8.5 3.2 8.5 7.2Z" /></svg>
+)
+export const IconSend = () => (
+  <svg {...base}><path d="M4.5 12h14M13 6.5 18.5 12 13 17.5" /></svg>
+)
+export const IconTeams = () => (
+  <svg {...base}><circle cx="9" cy="8.2" r="3.2" /><path d="M3.6 19.4c0-3 2.4-5.2 5.4-5.2s5.4 2.2 5.4 5.2" /><path d="M16.2 5.4a3.2 3.2 0 0 1 0 6.1M17.4 14.6c1.8.6 3 2.4 3 4.8" /></svg>
+)
+

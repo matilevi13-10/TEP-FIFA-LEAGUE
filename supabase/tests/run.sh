@@ -16,7 +16,7 @@ P="psql -h $SOCK -p 55432 -U postgres -v ON_ERROR_STOP=1 -q"
 
 $P -f supabase/tests/00_supabase_stub.sql 2>&1 | grep -Ev 'WARNING|HINT' || true
 $P -d tep -f supabase/schema.sql 2>&1 | grep -Ev 'NOTICE|^$' || true
-for t in supabase/tests/0[123]_*.sql; do
+for t in supabase/tests/0[1-9]_*.sql; do
   echo "── $(basename "$t")"
   $P -d tep -f "$t" 2>&1 | grep -E 'NOTICE:  ok|FAILED|ERROR' | sed 's/^.*NOTICE:  /  /'
 done

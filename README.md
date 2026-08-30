@@ -5,12 +5,15 @@ of the playoff bracket takes the pot. Built to be used from a phone, on the couc
 mid-argument about whether that goal counted.
 
 - **Phase 1 — League.** Every team plays a set number of games. Win 3, draw 1,
-  loss 0. Sorted on points, then goal difference, then goals scored.
+  loss 0. Sorted on points, then goal difference, then goals scored. The table is
+  the home page.
 - **Phase 2 — Playoffs.** The admin locks the league and seeds the top 4, 8 or 16
   into a single-elimination bracket. No draws. Whoever wins the final takes the pot.
 - **Every result needs two signatures.** The winning team submits (either team on a
   draw), the opponent confirms. Nothing touches the table or the bracket until it is
   confirmed. Anything disputed parks itself for the admin.
+- **A league chat.** One room, everyone in it. Confirmed results announce
+  themselves, and the winning team gets one taunt per win.
 
 Stack: React + Vite on AWS Amplify, Supabase (free tier) for data, auth and realtime.
 
@@ -22,105 +25,94 @@ Stack: React + Vite on AWS Amplify, Supabase (free tier) for data, auth and real
 
 Make a project at [supabase.com](https://supabase.com). Free tier is plenty.
 
-### 2. Run the schema
+### 2. Run the SQL
 
-Open **SQL Editor → New query**, paste all of [`supabase/schema.sql`](supabase/schema.sql),
-and run it. It creates the tables, row level security, the standings view, the bracket
-engine, and every RPC the app calls. It also seeds:
+**New project:** paste all of [`supabase/schema.sql`](supabase/schema.sql) into
+**SQL Editor → New query** and run it.
 
-- the league settings row (10 games per team, $50 buy-in — change both on the Admin screen)
-- one admin login — **team `Admin`, PIN `1234`**
+**Already running an older version:** run
+[`supabase/migrations/002_accounts_and_chat.sql`](supabase/migrations/002_accounts_and_chat.sql)
+instead. It is additive, wrapped in a transaction and re-runnable, and it keeps
+your teams, matches and season.
 
-Re-running the file resets everything. It drops its own tables first.
+### 3. Two dashboard settings
 
-### 3. Turn off email confirmation
+**Authentication → Sign In / Providers → Email**
 
-**Authentication → Sign In / Providers → Email** and switch **Confirm email** off.
+| Setting | Value | Why |
+| --- | --- | --- |
+| **Confirm email** | **OFF** | Accounts have to work the moment someone signs up. Leave this on and nobody can get in. |
+| **Allow new users to sign up** | **ON** | Players create their own accounts. |
 
-This is the one manual toggle and the app will not work without it. Players sign in
-with a team and a 4-digit PIN; behind the scenes the app creates a Supabase auth user
-per team on first login, and a confirmation email nobody can receive would block it.
-Make sure **Allow new users to sign up** stays on.
+Nothing else. No Google, no Apple, no OAuth.
 
 ### 4. Point the app at the project
 
 **Project Settings → API**, then:
 
 ```bash
-cp .env.example .env
-```
-
-Fill in `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Both are safe in the browser
-bundle — the anon key only unlocks what row level security allows.
-
-```bash
+cp .env.example .env      # fill in the URL and anon key
 npm install
 npm run dev
 ```
 
-Sign in as `Admin` / `1234`. **Change that PIN immediately** (Admin → Teams → Admin →
-Edit → Reset PIN), then add the real teams.
-
----
-
-## Deploying to AWS Amplify
-
-1. Connect the repo in the Amplify console. It will pick up
-   [`amplify.yml`](amplify.yml) automatically.
-2. **App settings → Environment variables** — add `VITE_SUPABASE_URL` and
-   `VITE_SUPABASE_ANON_KEY`. Vite bakes these in at build time, so a change needs a
-   redeploy.
-3. **App settings → Rewrites and redirects** — add:
-
-   | Source | Target | Type |
-   | --- | --- | --- |
-   | `/<*>` | `/index.html` | `200 (Rewrite)` |
-
-   Skip this and the app works until someone reloads on `/table` and gets a 404. It is
-   the usual way a single-page app breaks on Amplify.
-
-Tell everyone to open the URL on their phone and **Add to Home Screen** — there is a
-web manifest and icons, so it opens fullscreen like an app.
+Sign up with the admin address (see below) and you'll have the admin controls.
 
 ---
 
 ## How it hangs together
 
-### Signing in
+### Accounts
 
-Players pick their team and type a 4-digit PIN. The PIN is never the password.
+Supabase Auth owns the email and password. This schema owns the **username**,
+which is the identity everyone actually sees — in the table, the chat, and on a
+team. Sign-up is username + email + password; sign-in is email + password.
 
-`begin_signin` checks the PIN against a bcrypt hash in `team_secrets` — a table with
-row level security on and no policies, so nothing but a `SECURITY DEFINER` function can
-read it. Only on a match does it hand back the team's actual Supabase credentials (a
-32-byte random key). Eight wrong PINs locks that team out for fifteen minutes.
+Whoever signs up with the address in `league_settings.admin_email`
+(**matilevi13@gmail.com** by default) gets the admin controls automatically. You
+can hand that over from Admin → Season.
 
-So guessing a PIN means going through the rate limiter, and a signed-in player still
-cannot read anyone else's hash.
+### Teams
+
+One person creates the team and names the other half. The teammate is either an
+existing account, picked from a list, or a **placeholder** — just a name. When
+that person signs up under exactly that username, they claim the placeholder and
+land on the team already built for them. Everyone is on at most one team.
+
+The admin can also pair two people directly, or dissolve a team, as a fallback.
 
 ### Writes
 
-The client never writes to a table. `matches`, `teams` and `league_settings` are
-readable by any signed-in player and writable by nobody. Everything goes through RPCs
-that enforce the rules server-side: the losing team cannot submit, you cannot confirm
-your own result, playoff games cannot end level, nobody plays more games than the
-season allows, and the league locks the moment the playoffs start.
+The client never writes to a table. `teams`, `players`, `matches`, `messages` and
+`league_settings` are readable by any signed-in player and writable by nobody.
+Everything goes through `SECURITY DEFINER` RPCs that enforce the rules
+server-side: the losing team cannot submit, you cannot confirm your own result,
+playoff games cannot end level, nobody plays more games than the season allows,
+and the league locks the moment the playoffs start.
 
 ### The bracket
 
 `admin_start_playoffs` builds the whole bracket at once — round one gets the real
-seedings (1v8, 4v5, 3v6, 2v7, so the top two can only meet in the final), later rounds
-get empty slots. A trigger advances each confirmed winner into its parent slot and
-crowns the champion when the final lands. If the admin voids or rewrites a result that
-had already advanced somebody, `clear_from` walks up the bracket and wipes everything
-downstream of it.
+seedings (1v8, 4v5, 3v6, 2v7, so the top two can only meet in the final), later
+rounds get empty slots. A trigger advances each confirmed winner into its parent
+slot and crowns the champion when the final lands. If the admin voids or rewrites
+a result that had already advanced somebody, `clear_from` walks up the bracket and
+wipes everything downstream of it.
+
+### Chat, results and taunts
+
+Confirming a match posts an automatic result line, styled as the league talking
+rather than a player. Correct a score and the line rewrites itself; void the match
+and it disappears, taking any taunt with it. The winning team gets a one-shot
+taunt prompt — winner only, once per match, both enforced in the database.
 
 ### Live updates
 
-Every phone subscribes to `matches`, `teams` and `league_settings` over Supabase
-realtime. A confirmed result re-renders the table on everyone's screen in about a
-second. Standings are also recomputed client-side from the same rules as the
-`standings` view, so the UI never waits on a round trip.
+Every phone subscribes to `matches`, `teams`, `players`, `messages` and
+`league_settings` over Supabase realtime. A confirmed result re-renders the table
+on everyone's screen in about a second. Standings are also recomputed
+client-side from the same rules as the `standings` view, so the UI never waits on
+a round trip.
 
 ---
 
@@ -133,10 +125,14 @@ brew install postgresql@16
 ./supabase/tests/run.sh
 ```
 
-It plays a full season — sign-ins, wrong PINs, lockouts, submissions, confirmations,
-disputes, admin resolutions, an 8-team bracket through to a champion, voiding a
-confirmed semi-final and watching the bracket rebuild — and asserts row level security
-actually holds for a normal player.
+It plays a full season — sign-ups, username collisions, placeholder claims, team
+creation, submissions, confirmations, disputes, admin resolutions, an 8-team
+bracket through to a champion, voiding a confirmed semi-final and watching the
+bracket rebuild, chat, taunts — and asserts row level security actually holds for
+a normal player.
+
+To check the migration lands in the same place as a fresh install, the suite is
+also run against a migrated database during development.
 
 ---
 
@@ -145,23 +141,27 @@ actually holds for a normal player.
 ```
 src/
   lib/        supabase client, auth, realtime league store, RPC wrappers
-  components/ logo, nav, toasts, score stepper, confirm button, icons
-  screens/    SignIn, Home, Table, Submit, Bracket, Admin
+  components/ logo, nav, chat, taunt prompt, add-team form, toasts, icons
+  screens/    SignIn, Home (table + your team), Teams, Submit, Bracket, Admin
   index.css   the whole design system, documented at the top
 supabase/
-  schema.sql  teams, players, team_secrets, matches, league_settings,
-              RLS, the standings view, the bracket engine, RPCs and the seed
-  tests/      run.sh + the SQL suite
+  schema.sql              fresh install
+  migrations/             generated migration + its head/tail sources
+  tests/                  run.sh + the SQL suite
 amplify.yml   build config
 ```
 
+`supabase/migrations/002_accounts_and_chat.sql` is generated from `schema.sql` so
+the two cannot drift. After editing the schema, run
+`python3 supabase/migrations/build_002.py`.
+
 ## Notes
 
-- **Admin rights** live on a team row. The seeded `Admin` login does not play — it is
-  excluded from the table, the pot and every opponent list. If you would rather run the
-  league from your own team, open Admin → Teams → your team → **Make admin**, then
-  deactivate the `Admin` login.
-- **Buy-in tracking** is a paid/unpaid flag per team on the admin screen. The pot is
-  simply active teams × buy-in.
-- **PP Neue Montreal** is a commercial typeface from Pangram Pangram, bundled here in
-  `src/fonts/`. Make sure your licence covers web use before this goes anywhere public.
+- **Anyone with the URL can sign up.** That is what "no confirmation email" buys.
+  For a private group it is usually fine; the admin can delete stray accounts from
+  Admin → Players.
+- **Passwords** are Supabase Auth's business. There is no PIN and no password
+  reset in the app — use the Supabase dashboard if someone is locked out.
+- **PP Neue Montreal** is a commercial typeface from Pangram Pangram, bundled here
+  in `src/fonts/`. Make sure your licence covers web use before this goes anywhere
+  public.

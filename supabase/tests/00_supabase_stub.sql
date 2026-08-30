@@ -10,6 +10,10 @@ create table auth.users (id uuid primary key default gen_random_uuid(), email te
 create function auth.uid() returns uuid language sql stable as $$
   select nullif(current_setting('test.uid', true), '')::uuid;
 $$;
+-- Supabase exposes the whole JWT; the app only reads the email claim.
+create function auth.jwt() returns jsonb language sql stable as $$
+  select jsonb_build_object('email', coalesce(current_setting('test.email', true), ''));
+$$;
 do $$ begin
   if not exists (select 1 from pg_roles where rolname='anon') then create role anon nologin; end if;
   if not exists (select 1 from pg_roles where rolname='authenticated') then create role authenticated nologin; end if;

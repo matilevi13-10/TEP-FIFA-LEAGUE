@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { slotsUsed, useLeague } from '../lib/league'
 import { submitLeagueResult, submitPlayoffResult } from '../lib/actions'
@@ -11,7 +11,7 @@ import { readableError } from '../lib/supabase'
 import type { Team } from '../lib/types'
 
 export function Submit() {
-  const { team } = useAuth()
+  const { player } = useAuth()
   const league = useLeague()
   const toast = useToast()
   const navigate = useNavigate()
@@ -21,32 +21,45 @@ export function Submit() {
   const [theirs, setTheirs] = useState(0)
   const [busy, setBusy] = useState(false)
 
-  const { settings, matches, activeTeams } = league
+  const { settings, matches, activeTeams, myTeam } = league
   const isPlayoffs = settings?.phase === 'playoffs' || settings?.phase === 'complete'
 
   /** In the playoffs there is no choosing — you play the slot the bracket gives you. */
   const myBracketMatch = useMemo(() => {
-    if (!team || !isPlayoffs) return null
+    if (!myTeam || !isPlayoffs) return null
     return (
       matches.find(
         (m) =>
           m.phase === 'playoff' &&
           (m.status === 'scheduled' || m.status === 'disputed') &&
           m.team_a !== null && m.team_b !== null &&
-          (m.team_a === team.id || m.team_b === team.id),
+          (m.team_a === myTeam.id || m.team_b === myTeam.id),
       ) ?? null
     )
-  }, [team, matches, isPlayoffs])
+  }, [myTeam, matches, isPlayoffs])
 
   const bracketOpponent = myBracketMatch
-    ? league.teamById(myBracketMatch.team_a === team?.id ? myBracketMatch.team_b : myBracketMatch.team_a)
+    ? league.teamById(myBracketMatch.team_a === myTeam?.id ? myBracketMatch.team_b : myBracketMatch.team_a)
     : undefined
 
   const totalRounds = settings?.playoff_size ? Math.log2(settings.playoff_size) : 0
 
-  if (!team) return null
+  if (!player) return null
+  if (!myTeam) {
+    return (
+      <div className="page">
+        <Header title="Submit Result" sub="You need a team first" />
+        <div className="card center" style={{ padding: 30 }}>
+          <p className="muted" style={{ margin: '0 0 14px', fontSize: 14 }}>
+            Results are logged by teams. Pair up with someone from the player pool first.
+          </p>
+          <Link to="/teams" className="btn btn--primary">Find a teammate</Link>
+        </div>
+      </div>
+    )
+  }
 
-  const used = slotsUsed(matches, team.id)
+  const used = slotsUsed(matches, myTeam.id)
   const remaining = Math.max(0, (settings?.games_per_team ?? 0) - used)
 
   const drawn = mine === theirs
@@ -96,7 +109,7 @@ export function Submit() {
 
   // ── League: pick an opponent ────────────────────────────────────────────
   if (!isPlayoffs && !opponent) {
-    const opponents = activeTeams.filter((t) => t.id !== team.id)
+    const opponents = activeTeams.filter((t) => t.id !== myTeam.id)
     return (
       <div className="page">
         <Header
@@ -177,7 +190,7 @@ export function Submit() {
         )}
 
         <div className="row" style={{ alignItems: 'flex-start', gap: 14 }}>
-          <ScoreStepper label={team.name} sub="You" value={mine} onChange={setMine} accent />
+          <ScoreStepper label={myTeam.name} sub="You" value={mine} onChange={setMine} accent />
           {/* 40px label block + 12px gap + half of the 96px input = the score row's axis */}
           <div style={{ paddingTop: 90, fontSize: 20, color: 'var(--text-3)', fontWeight: 500 }}>–</div>
           <ScoreStepper

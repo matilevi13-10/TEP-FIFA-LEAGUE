@@ -1,11 +1,9 @@
-import { useAuth } from '../lib/auth'
 import { useLeague } from '../lib/league'
 import { IconTrophy } from '../components/Icons'
 import { money, roundName } from '../lib/format'
 import type { Match } from '../lib/types'
 
 export function Bracket() {
-  const { team } = useAuth()
   const league = useLeague()
   const { matches, settings, potCents } = league
 
@@ -71,7 +69,7 @@ export function Bracket() {
                   >
                     {pair.map((match) => (
                       <div className="bracket__slot" key={match.id}>
-                        <Matchup match={match} myTeamId={team?.id} />
+                        <Matchup match={match} myTeamId={league.myTeam?.id} />
                       </div>
                     ))}
                   </div>
