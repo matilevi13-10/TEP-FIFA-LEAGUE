@@ -14,6 +14,16 @@ declare uid uuid; begin
   return claim_account(p_username);
 end $$;
 
+-- The only way a team can come into existence: ask, then accept.
+create or replace function pair(a text, b text, tname text) returns uuid
+language plpgsql as $$
+declare r uuid; begin
+  perform act_as(a);
+  r := send_teammate_request((select id from players where lower(name)=lower(b)), tname);
+  perform act_as(b);
+  return accept_teammate_request(r, null);
+end $$;
+
 -- signUp with no metadata, to prove the trigger still produces a usable row.
 create or replace function signup_bare(p_email text) returns uuid
 language plpgsql as $$
@@ -83,101 +93,123 @@ do $$ declare uid uuid; begin
   raise notice 'ok: a free username works';
 end $$;
 
-\echo '=== 3. create a team by naming an existing user ==='
-do $$ declare t uuid; begin
+\echo '=== 3. a team is formed by request then accept ==='
+do $$ declare t uuid; r uuid; begin
   perform act_as('Mati');
-  t := create_team('Los Galácticos', (select id from players where name='Nico'), null);
+  r := send_teammate_request((select id from players where name='Nico'), 'Los Galácticos');
+
+  -- Nothing exists until the other side agrees.
+  if exists (select 1 from teams) then
+    raise exception 'TEST FAILED: a request alone created a team';
+  end if;
+  raise notice 'ok: a request alone creates no team';
+
+  begin
+    perform accept_teammate_request(r, null);
+    raise exception 'TEST FAILED: the sender accepted their own request';
+  exception when sqlstate 'P0001' then raise notice 'ok: only the recipient can accept'; end;
+
+  begin
+    perform send_teammate_request((select id from players where name='Leo'), 'Other');
+    raise exception 'TEST FAILED: a second outgoing request was allowed';
+  exception when sqlstate 'P0001' then raise notice 'ok: one outgoing request at a time'; end;
+
+  perform act_as('Nico');
+  t := accept_teammate_request(r, null);
+
   if (select count(*) from players where team_id = t) <> 2 then
     raise exception 'TEST FAILED: team does not have two players';
   end if;
   if (select slot from players where name='Mati') <> 1
      or (select slot from players where name='Nico') <> 2 then
-    raise exception 'TEST FAILED: slots wrong';
+    raise exception 'TEST FAILED: slots wrong (requester should be 1)';
   end if;
-  raise notice 'ok: team created with an existing user';
+  if (select name from teams where id = t) <> 'Los Galácticos' then
+    raise exception 'TEST FAILED: proposed name not used';
+  end if;
+  raise notice 'ok: accepting created the team, both linked, slots 1 and 2';
 end $$;
 
-\echo '=== 4. one team per person ==='
+\echo '=== 4. teamed players are out of the market ==='
 do $$ begin
-  perform act_as('Mati');
+  perform act_as('Mati');   -- now on Los Galácticos
   begin
-    perform create_team('Second Team', (select id from players where name='Leo'), null);
-    raise exception 'TEST FAILED: created a second team';
-  exception when sqlstate 'P0001' then raise notice 'ok: creator cannot be on two teams'; end;
+    perform send_teammate_request((select id from players where name='Leo'), 'Another');
+    raise exception 'TEST FAILED: a teamed player sent a request';
+  exception when sqlstate 'P0001' then raise notice 'ok: teamed player cannot send requests'; end;
 
   perform act_as('Leo');
   begin
-    perform create_team('Poachers', (select id from players where name='Nico'), null);
-    raise exception 'TEST FAILED: recruited an already-teamed player';
-  exception when sqlstate 'P0001' then raise notice 'ok: cannot recruit a teamed player'; end;
+    perform send_teammate_request((select id from players where name='Nico'), 'Poachers');
+    raise exception 'TEST FAILED: a request to a teamed player was allowed';
+  exception when sqlstate 'P0001' then raise notice 'ok: cannot request a teamed player'; end;
 
   begin
-    perform create_team('Myself', null, 'Leo');
-    raise exception 'TEST FAILED: teamed up with themselves';
+    perform send_teammate_request((select id from players where name='Leo'), 'Myself');
+    raise exception 'TEST FAILED: sent a request to themselves';
   exception when sqlstate 'P0001' then raise notice 'ok: cannot pick yourself'; end;
 end $$;
 
-\echo '=== 5. a placeholder teammate, claimed later at sign-up ==='
-do $$ declare t uuid; ph uuid; begin
-  perform act_as('Leo');
-  t := create_team('Tiki Taka', null, 'Rui');
-  select id into ph from players where lower(name) = 'rui';
-  if ph is null then raise exception 'TEST FAILED: placeholder was not created'; end if;
-  if (select user_id from players where id = ph) is not null then
-    raise exception 'TEST FAILED: placeholder should have no account yet';
-  end if;
-  if (select team_id from players where id = ph) <> t then
-    raise exception 'TEST FAILED: placeholder is not on the team';
-  end if;
-  raise notice 'ok: placeholder created and placed on the team';
-end $$;
+\echo '=== 5. nothing can bring a player into existence but sign-up ==='
+do $$ declare n_before int; n_after int; begin
+  select count(*) into n_before from players;
 
-do $$ declare ph uuid; begin
-  select id into ph from players where lower(name) = 'rui';
-  perform signup('Rui', 'rui@example.com');
-  if (select id from players where lower(name)='rui') <> ph then
-    raise exception 'TEST FAILED: sign-up made a second row instead of claiming';
+  perform act_as('Leo');
+  -- There is no function that takes a teammate *name*; only an id of somebody
+  -- who already signed up. A name that belongs to nobody has no id to pass.
+  begin
+    perform send_teammate_request(gen_random_uuid(), 'Ghost Team');
+    raise exception 'TEST FAILED: a request to a non-existent player succeeded';
+  exception when sqlstate 'P0002' then raise notice 'ok: cannot request somebody who does not exist'; end;
+
+  select count(*) into n_after from players;
+  if n_after <> n_before then
+    raise exception 'TEST FAILED: the player count changed (% -> %)', n_before, n_after;
   end if;
-  if (select user_id from players where id = ph) is null then
-    raise exception 'TEST FAILED: placeholder was not claimed';
+  raise notice 'ok: no player was invented';
+
+  -- and the old placeholder entry points are gone for good
+  if exists (select 1 from pg_proc p join pg_namespace nsp on nsp.oid = p.pronamespace
+              where nsp.nspname='public'
+                and p.proname in ('create_team','admin_create_placeholder')) then
+    raise exception 'TEST FAILED: a placeholder-creating function still exists';
   end if;
-  if (select name from teams where id = (select team_id from players where id = ph)) <> 'Tiki Taka' then
-    raise exception 'TEST FAILED: claimed player lost their team';
-  end if;
-  if (select count(*) from players where lower(name)='rui') <> 1 then
-    raise exception 'TEST FAILED: duplicate player rows for the same name';
-  end if;
-  raise notice 'ok: sign-up claimed the placeholder, team intact';
+  raise notice 'ok: create_team and admin_create_placeholder no longer exist';
 end $$;
 
 \echo '=== 6. team names are unique and required ==='
-do $$ begin
+do $$ declare r uuid; begin
   perform act_as('Tom');
   begin
-    perform create_team('los galácticos', null, 'Someone New');
-    raise exception 'TEST FAILED: duplicate team name accepted';
-  exception when sqlstate 'P0001' then raise notice 'ok: duplicate team name rejected'; end;
+    perform send_teammate_request((select id from players where name='Ben'), 'los galácticos');
+    raise exception 'TEST FAILED: duplicate team name accepted on the request';
+  exception when sqlstate 'P0001' then raise notice 'ok: duplicate name rejected when proposing'; end;
+
+  r := send_teammate_request((select id from players where name='Ben'), null);
+  perform act_as('Ben');
   begin
-    perform create_team('  ', null, 'Another');
+    perform accept_teammate_request(r, 'LOS GALÁCTICOS');
+    raise exception 'TEST FAILED: duplicate team name accepted on accept';
+  exception when sqlstate 'P0001' then raise notice 'ok: duplicate name rejected when accepting'; end;
+  begin
+    perform accept_teammate_request(r, '   ');
     raise exception 'TEST FAILED: blank team name accepted';
   exception when sqlstate 'P0001' then raise notice 'ok: blank team name rejected'; end;
+  perform accept_teammate_request(r, 'Route One');
+  raise notice 'ok: accepted with a valid name';
 end $$;
 
 \echo '=== 7. fill out the league ==='
-do $$ begin
-  perform act_as('Tom'); perform create_team('Route One', (select id from players where name='Ben'), null);
-  perform act_as('Sam'); perform create_team('Catenaccio', (select id from players where name='Max'), null);
-  perform act_as('Someone'); perform create_team('Gegenpress', null, 'Ari');
-end $$;
-select signup('Ari','ari@example.com');
-select signup('Ivo','ivo@example.com'), signup('Gus','gus@example.com'),
-       signup('Pep','pep@example.com'), signup('Kai','kai@example.com'),
-       signup('Ozzy','ozzy@example.com'), signup('Ana','ana@example.com');
-do $$ begin
-  perform act_as('Ivo'); perform create_team('Park The Bus', (select id from players where name='Gus'), null);
-  perform act_as('Pep'); perform create_team('Total Football', (select id from players where name='Ana'), null);
-  perform act_as('Kai'); perform create_team('Long Ball FC', (select id from players where name='Ozzy'), null);
-end $$;
+select signup('Ari','ari@example.com'), signup('Ivo','ivo@example.com'),
+       signup('Gus','gus@example.com'), signup('Pep','pep@example.com'),
+       signup('Kai','kai@example.com'), signup('Ozzy','ozzy@example.com'),
+       signup('Ana','ana@example.com');
+select pair('Leo','Juan','Tiki Taka');
+select pair('Sam','Max','Catenaccio');
+select pair('Someone','Ari','Gegenpress');
+select pair('Ivo','Gus','Park The Bus');
+select pair('Pep','Ana','Total Football');
+select pair('Kai','Ozzy','Long Ball FC');
 select t.name, (select count(*) from players p where p.team_id = t.id) as players from teams t order by t.name;
 
 \echo '=== 8. a signed-in account with no profile repairs itself ==='
@@ -289,35 +321,88 @@ do $$ declare uid uuid; keep text; begin
   perform sync_admin_flags();
 end $$;
 
-\echo '=== 10. the trigger claims a placeholder, team and all ==='
-do $$ declare uid uuid; t uuid; ph uuid; begin
-  perform act_as('Tom');   -- Tom is on Route One
-  select id into ph from players where lower(name) = 'rui';   -- claimed earlier
+\echo '=== 10. cancel, decline, and auto-expiry ==='
+select signup('Cando','cando@example.com'), signup('Declan','declan@example.com'),
+       signup('Wanted','wanted@example.com'), signup('Rival','rival@example.com');
 
-  -- Make a fresh placeholder on a new team.
-  perform signup('Holder','holder@example.com');
-  perform act_as('Holder');
-  t := create_team('Sub Standard', null, 'Ghosty');
-  select id into ph from players where lower(name) = 'ghosty';
-  if (select user_id from players where id = ph) is not null then
-    raise exception 'TEST FAILED: fixture — placeholder should be unclaimed';
+do $$ declare r uuid; begin
+  perform act_as('Cando');
+  r := send_teammate_request((select id from players where name='Declan'), 'Withdrawn');
+  perform cancel_teammate_request(r);
+  if (select status from team_requests where id=r) <> 'cancelled' then
+    raise exception 'TEST FAILED: cancel did not stick';
   end if;
+  raise notice 'ok: the sender can cancel';
 
-  -- Ghosty signs up. The trigger alone should claim that row, not make a second.
-  insert into auth.users (email, raw_user_meta_data)
-  values ('ghosty@example.com', jsonb_build_object('username', 'Ghosty'))
-  returning id into uid;
+  -- and cancelling frees them to ask again
+  r := send_teammate_request((select id from players where name='Declan'), null);
+  perform act_as('Declan');
+  perform decline_teammate_request(r);
+  if (select status from team_requests where id=r) <> 'declined' then
+    raise exception 'TEST FAILED: decline did not stick';
+  end if;
+  if exists (select 1 from teams where name='Withdrawn') then
+    raise exception 'TEST FAILED: a declined request still made a team';
+  end if;
+  raise notice 'ok: the recipient can decline';
+end $$;
 
-  if (select count(*) from players where lower(name) = 'ghosty') <> 1 then
-    raise exception 'TEST FAILED: % rows named Ghosty', (select count(*) from players where lower(name)='ghosty');
+do $$ declare r1 uuid; r2 uuid; begin
+  -- Cando and Rival both ask Wanted. Wanted accepts Cando, so Rival's request
+  -- must expire rather than linger against a teamed player.
+  perform act_as('Cando');
+  r1 := send_teammate_request((select id from players where name='Wanted'), 'First Past');
+  perform act_as('Rival');
+  r2 := send_teammate_request((select id from players where name='Wanted'), 'Too Slow');
+  perform act_as('Wanted');
+  perform accept_teammate_request(r1, null);
+
+  if (select status from team_requests where id=r2) <> 'expired' then
+    raise exception 'TEST FAILED: the losing request is still "%"',
+      (select status from team_requests where id=r2);
   end if;
-  if (select user_id from players where id = ph) <> uid then
-    raise exception 'TEST FAILED: the trigger did not claim the placeholder';
+  raise notice 'ok: competing requests auto-expire on accept';
+
+  -- and the loser cannot force it through afterwards
+  perform act_as('Wanted');
+  begin
+    perform accept_teammate_request(r2, 'Too Slow');
+    raise exception 'TEST FAILED: an expired request was accepted';
+  exception when sqlstate 'P0001' then raise notice 'ok: an expired request cannot be accepted'; end;
+end $$;
+
+\echo '=== 10b. either teammate can rename their own team ==='
+do $$ begin
+  perform act_as('Cando');            -- slot 1 of First Past
+  perform rename_team('Renamed By One');
+  if not exists (select 1 from teams where name='Renamed By One') then
+    raise exception 'TEST FAILED: slot 1 could not rename';
   end if;
-  if (select team_id from players where id = ph) <> t then
-    raise exception 'TEST FAILED: claimed placeholder lost its team';
+  raise notice 'ok: the requester can rename';
+
+  perform act_as('Wanted');           -- slot 2 of the same team
+  perform rename_team('Renamed By Two');
+  if not exists (select 1 from teams where name='Renamed By Two') then
+    raise exception 'TEST FAILED: slot 2 could not rename';
   end if;
-  raise notice 'ok: trigger claims a placeholder and keeps its team';
+  raise notice 'ok: the accepter can rename too';
+
+  begin
+    perform rename_team('Los Galácticos');
+    raise exception 'TEST FAILED: renamed onto a taken name';
+  exception when sqlstate 'P0001' then raise notice 'ok: rename respects uniqueness'; end;
+
+  begin
+    perform rename_team('   ');
+    raise exception 'TEST FAILED: blank rename accepted';
+  exception when sqlstate 'P0001' then raise notice 'ok: blank rename rejected'; end;
+
+  -- somebody with no team has nothing to rename
+  perform act_as('Declan');
+  begin
+    perform rename_team('Nice Try');
+    raise exception 'TEST FAILED: a teamless player renamed something';
+  exception when sqlstate 'P0001' then raise notice 'ok: teamless players cannot rename'; end;
 end $$;
 
 \echo '=== 11. a broken trigger must never block sign-up ==='

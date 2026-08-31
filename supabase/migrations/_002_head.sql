@@ -201,6 +201,77 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 -- ---------------------------------------------------------------------------
+-- 2c. Placeholder players are gone — a player now exists only by signing up
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.team_requests (
+  id                 uuid primary key default gen_random_uuid(),
+  from_player        uuid not null references public.players(id) on delete cascade,
+  to_player          uuid not null references public.players(id) on delete cascade,
+  proposed_team_name text check (proposed_team_name is null
+                                 or length(btrim(proposed_team_name)) between 1 and 40),
+  status             text not null default 'pending'
+                     check (status in ('pending','accepted','declined','cancelled','expired')),
+  created_at         timestamptz not null default now(),
+  responded_at       timestamptz,
+  constraint different_players check (from_player <> to_player)
+);
+
+create unique index if not exists team_requests_one_outgoing
+  on public.team_requests (from_player) where status = 'pending';
+create index if not exists team_requests_inbox_idx
+  on public.team_requests (to_player) where status = 'pending';
+
+-- A placeholder is a players row with no user_id: a name somebody typed for a
+-- teammate who never signed up. Those cannot be created any more.
+--
+-- Unattached placeholders are removed here — nothing references them and they
+-- would otherwise squat on usernames real people want.
+--
+-- Placeholders that sit ON A TEAM are NOT touched. Deleting one would silently
+-- halve a team that may already have played matches, so they are listed for you
+-- to decide about. Each one keeps its team until you act.
+do $$
+declare r record; free_count int := 0; held_count int := 0;
+begin
+  select count(*) into free_count
+    from public.players where user_id is null and team_id is null;
+
+  if free_count > 0 then
+    delete from public.players where user_id is null and team_id is null;
+    raise notice 'Removed % unattached placeholder player(s).', free_count;
+  else
+    raise notice 'No unattached placeholder players to remove.';
+  end if;
+
+  for r in
+    select p.id as player_id, p.name as player_name, p.slot,
+           t.id as team_id, t.name as team_name,
+           (select string_agg(o.name, ' + ' order by o.slot)
+              from public.players o where o.team_id = t.id) as roster,
+           (select count(*) from public.matches m
+             where m.team_a = t.id or m.team_b = t.id) as match_count
+      from public.players p
+      join public.teams t on t.id = p.team_id
+     where p.user_id is null
+     order by t.name, p.slot
+  loop
+    held_count := held_count + 1;
+    raise warning 'PLACEHOLDER ON A TEAM — team "%" (roster: %), placeholder "%" in slot %, % match(es). Left in place for you to decide.',
+      r.team_name, r.roster, r.player_name, r.slot, r.match_count;
+  end loop;
+
+  if held_count = 0 then
+    raise notice 'No placeholders are attached to a team — nothing needs your decision.';
+  else
+    raise warning '% placeholder(s) above are on teams and were NOT deleted.', held_count;
+    raise warning 'Options per team: (a) that person signs up with the exact username, then '
+                  'update public.players set user_id = <their auth uid> where id = <placeholder id>; '
+                  'or (b) dissolve the team from Admin, freeing the real player back to the pool.';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- 3. Drop what this version replaces
 -- ---------------------------------------------------------------------------
 
@@ -226,5 +297,6 @@ drop function if exists public.send_teammate_request(uuid, text);
 drop function if exists public.cancel_teammate_request(uuid);
 drop function if exists public.decline_teammate_request(uuid);
 drop function if exists public.accept_teammate_request(uuid, text);
-drop function if exists public.expire_requests_for(uuid);
-drop table if exists public.team_requests;
+-- create_team took a teammate *name* and invented a player from it. Gone.
+drop function if exists public.create_team(text, uuid, text);
+drop function if exists public.admin_create_placeholder(text);

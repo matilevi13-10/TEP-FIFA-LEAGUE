@@ -2,11 +2,9 @@ export type Phase = 'league' | 'playoffs' | 'complete'
 export type MatchPhase = 'league' | 'playoff'
 export type MatchStatus = 'scheduled' | 'pending' | 'confirmed' | 'disputed' | 'voided'
 export type MessageKind = 'chat' | 'result' | 'taunt'
+export type RequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired'
 
-/**
- * One row per person. user_id null means a placeholder: named as somebody's
- * teammate, waiting to be claimed at sign-up.
- */
+/** One row per person, created only when that person signs themselves up. */
 export interface Player {
   id: string
   user_id: string | null
@@ -25,6 +23,16 @@ export interface Team {
   is_active: boolean
   paid: boolean
   created_at: string
+}
+
+export interface TeamRequest {
+  id: string
+  from_player: string
+  to_player: string
+  proposed_team_name: string | null
+  status: RequestStatus
+  created_at: string
+  responded_at: string | null
 }
 
 export interface Message {

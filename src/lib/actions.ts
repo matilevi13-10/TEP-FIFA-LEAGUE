@@ -8,18 +8,26 @@ async function call<T = unknown>(fn: string, args: Record<string, unknown> = {})
 }
 
 // ── Account ───────────────────────────────────────────────────────────────
-/** Attaches a username to the freshly created auth user, or claims a placeholder. */
+/** Attaches a username to the freshly created auth user. */
 export const claimAccount = (username: string) =>
   call<string>('claim_account', { p_username: username })
 
 // ── Teams ─────────────────────────────────────────────────────────────────
-/** Teammate is either an existing account, or a name they claim when they join. */
-export const createTeam = (
-  name: string, teammateId: string | null, teammateName: string | null,
-) =>
-  call<string>('create_team', {
-    p_name: name, p_teammate_id: teammateId, p_teammate_name: teammateName,
-  })
+/** A team exists only once both sides agree, so this is the only entry point. */
+export const sendTeammateRequest = (toPlayer: string, teamName: string | null) =>
+  call<string>('send_teammate_request', { p_to_player: toPlayer, p_team_name: teamName })
+
+export const cancelTeammateRequest = (requestId: string) =>
+  call('cancel_teammate_request', { p_request_id: requestId })
+
+export const declineTeammateRequest = (requestId: string) =>
+  call('decline_teammate_request', { p_request_id: requestId })
+
+export const acceptTeammateRequest = (requestId: string, teamName: string | null) =>
+  call<string>('accept_teammate_request', { p_request_id: requestId, p_team_name: teamName })
+
+/** Either teammate can rename their own team. */
+export const renameTeam = (name: string) => call('rename_team', { p_name: name })
 
 // ── Matches ───────────────────────────────────────────────────────────────
 export const submitLeagueResult = (opponentId: string, myScore: number, opponentScore: number) =>
@@ -42,9 +50,6 @@ export const postTaunt = (matchId: string, body: string) =>
   call<string>('post_taunt', { p_match_id: matchId, p_body: body })
 
 // ── Admin ─────────────────────────────────────────────────────────────────
-export const adminCreatePlaceholder = (name: string) =>
-  call<string>('admin_create_placeholder', { p_name: name })
-
 export const adminRenamePlayer = (playerId: string, name: string) =>
   call('admin_rename_player', { p_player_id: playerId, p_name: name })
 

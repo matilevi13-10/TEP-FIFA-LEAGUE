@@ -7,12 +7,12 @@ interface Item { to: string; label: string; icon: JSX.Element; badge?: number }
 
 function useNavItems(): Item[] {
   const { player } = useAuth()
-  const { settings, pendingForMe } = useLeague()
+  const { settings, pendingForMe, incomingRequests } = useLeague()
   const inPlayoffs = settings?.phase === 'playoffs' || settings?.phase === 'complete'
 
   const items: Item[] = [
-    { to: '/', label: 'League', icon: <IconHome />, badge: pendingForMe.length },
-    { to: '/teams', label: 'Teams', icon: <IconTeams /> },
+    { to: '/', label: 'League', icon: <IconHome />, badge: pendingForMe.length + incomingRequests.length },
+    { to: '/teams', label: 'Teams', icon: <IconTeams />, badge: incomingRequests.length },
   ]
   if (player?.team_id) items.push({ to: '/submit', label: 'Submit', icon: <IconSubmit /> })
   if (inPlayoffs) items.push({ to: '/bracket', label: 'Bracket', icon: <IconBracket /> })

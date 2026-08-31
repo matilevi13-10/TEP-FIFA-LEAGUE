@@ -5,9 +5,10 @@
 do $$ begin
   perform act_as_team('Route One');
   begin
-    perform admin_create_placeholder('Sneaky');
-    raise exception 'TEST FAILED: non-admin created a placeholder';
-  exception when sqlstate 'P0001' then raise notice 'ok: admin_create_placeholder blocked'; end;
+    perform admin_create_team('Sneaky',
+      (select id from players where name='Cando'), (select id from players where name='Declan'));
+    raise exception 'TEST FAILED: non-admin paired players';
+  exception when sqlstate 'P0001' then raise notice 'ok: admin_create_team blocked'; end;
   begin
     perform admin_start_playoffs(4);
     raise exception 'TEST FAILED: non-admin started playoffs';
@@ -65,13 +66,25 @@ do $$ declare n int; begin
 end $$;
 reset role;
 
-\echo '=== 25. team creation is validated server-side ==='
+\echo '=== 25. team formation is validated server-side ==='
 do $$ begin
   perform act_as('Tom');   -- Tom is on Route One
   begin
-    perform create_team('Sneaky Second', null, 'Ghost');
-    raise exception 'TEST FAILED: a teamed player created another team';
+    perform send_teammate_request((select id from players where name='Declan'), 'Sneaky Second');
+    raise exception 'TEST FAILED: a teamed player asked for another team';
   exception when sqlstate 'P0001' then raise notice 'ok: one team per person enforced'; end;
+end $$;
+
+do $$ declare n int; begin
+  -- A player can only ever see requests they are party to.
+  set role authenticated;
+  perform set_config('test.uid', (select user_id::text from players where name='Tom'), false);
+  select count(*) into n from team_requests
+   where from_player <> (select id from players where name='Tom')
+     and to_player   <> (select id from players where name='Tom');
+  reset role;
+  if n <> 0 then raise exception 'TEST FAILED: saw % requests belonging to others', n; end if;
+  raise notice 'ok: requests are private to their two players';
 end $$;
 
 \echo '=== 27. admin dissolves a team; both players return to the pool ==='
@@ -87,9 +100,8 @@ do $$ declare t uuid; n int; begin
   if n <> 2 then raise exception 'TEST FAILED: % of 2 players returned to the pool', n; end if;
   raise notice 'ok: dissolved team returned both players to the pool';
 
-  -- and they can make a new team straight away
-  perform act_as('Kai');
-  perform create_team('Reformed', (select id from players where name='Ozzy'), null);
+  -- and they can pair up again through the normal flow
+  perform pair('Kai','Ozzy','Reformed');
   if not exists (select 1 from teams where name='Reformed') then
     raise exception 'TEST FAILED: freed players could not re-form';
   end if;

@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../lib/auth'
 import { useLeague } from '../lib/league'
 import {
-  adminCreatePlaceholder, adminCreateTeam, adminDeleteMessage, adminDeletePlayer,
+  adminCreateTeam, adminDeleteMessage, adminDeletePlayer,
   adminDissolveTeam, adminRenamePlayer, adminResetPlayoffs, adminResolveMatch,
   adminStartPlayoffs, adminUpdateSettings, adminUpdateTeam, adminVoidMatch,
 } from '../lib/actions'
@@ -399,43 +399,15 @@ function TeamRow({ team, run }: { team: Team; run: Run }) {
 
 function PlayersAdmin({ run }: { run: Run }) {
   const league = useLeague()
-  const [adding, setAdding] = useState(false)
-  const [name, setName] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  const create = async () => {
-    setBusy(true)
-    const ok = await run(() => adminCreatePlaceholder(name), `${name.trim()} added.`)
-    setBusy(false)
-    if (ok) { setName(''); setAdding(false) }
-  }
 
   return (
     <section className="section">
-      <div className="spread" style={{ marginBottom: 'var(--s-3)' }}>
-        <div className="eyebrow" style={{ margin: '0 0 0 2px' }}>Players</div>
-        <button className="btn btn--quiet btn--sm" style={{ padding: 0 }} onClick={() => setAdding((v) => !v)}>
-          {adding ? 'Cancel' : '+ Add placeholder'}
-        </button>
-      </div>
-
+      <div className="eyebrow">Players</div>
       <div className="stack">
-        {adding && (
-          <div className="card card--accent stack">
-            <div className="field">
-              <label className="field__label" htmlFor="np-name">Name</label>
-              <input id="np-name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
-            </div>
-            <p className="field__hint" style={{ padding: 0 }}>
-              Creates a name others can put on a team. That person claims it by signing up
-              with the same username — there is no password to set here.
-            </p>
-            <button className="btn btn--primary btn--block"
-              disabled={busy || !name.trim()} onClick={create}>
-              {busy ? 'Adding…' : 'Add placeholder'}
-            </button>
-          </div>
-        )}
+        <p className="field__hint" style={{ padding: 0 }}>
+          Players only exist by signing themselves up — there is no way to add one
+          from here.
+        </p>
         {league.players.map((p) => <PlayerRow key={p.id} player={p} run={run} />)}
       </div>
     </section>

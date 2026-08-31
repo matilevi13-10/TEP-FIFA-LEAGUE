@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { supabase } from './supabase'
 import { useAuth } from './auth'
-import type { Match, Message, Player, Settings, Standing, Team } from './types'
+import type { Match, Message, Player, Settings, Standing, Team, TeamRequest } from './types'
 
 interface LeagueValue {
   loading: boolean
@@ -10,13 +10,18 @@ interface LeagueValue {
   players: Player[]
   matches: Match[]
   messages: Message[]
+  requests: TeamRequest[]
   settings: Settings | null
   standings: Standing[]
   activeTeams: Team[]
-  /** Everybody without a team, including unclaimed placeholders. */
+  /** Everybody without a team. */
   pool: Player[]
-  /** Teamless people who have actually signed up — pickable as a teammate. */
+  /** Everyone else in the pool — all of them signed up, so all are askable. */
   availableTeammates: Player[]
+  /** Requests sent to me, still open. */
+  incomingRequests: TeamRequest[]
+  /** My single open outgoing request, if any. */
+  outgoingRequest: TeamRequest | undefined
   teamById: (id: string | null | undefined) => Team | undefined
   playerById: (id: string | null | undefined) => Player | undefined
   /** The two player names for a team, in slot order. */
@@ -96,23 +101,26 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
   const [players, setPlayers] = useState<Player[]>([])
   const [matches, setMatches] = useState<Match[]>([])
   const [messages, setMessages] = useState<Message[]>([])
+  const [requests, setRequests] = useState<TeamRequest[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
   const pending = useRef<number | null>(null)
 
   const refresh = useCallback(async () => {
     if (!session) return
-    const [t, p, m, msg, s] = await Promise.all([
+    const [t, p, m, msg, r, s] = await Promise.all([
       supabase.from('teams').select('*').order('name'),
       supabase.from('players').select('*').order('name'),
       supabase.from('matches').select('*').order('created_at', { ascending: false }),
       supabase.from('messages').select('*').order('created_at', { ascending: true }).limit(300),
+      supabase.from('team_requests').select('*').eq('status', 'pending'),
       supabase.from('league_settings').select('*').eq('id', 1).maybeSingle(),
     ])
     if (t.data) setTeams(t.data as Team[])
     if (p.data) setPlayers(p.data as Player[])
     if (m.data) setMatches(m.data as Match[])
     if (msg.data) setMessages(msg.data as Message[])
+    if (r.data) setRequests(r.data as TeamRequest[])
     if (s.data) setSettings(s.data as Settings)
     setLoading(false)
   }, [session])
@@ -120,7 +128,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!session) {
       setTeams([]); setPlayers([]); setMatches([]); setMessages([])
-      setSettings(null); setLoading(true)
+      setRequests([]); setSettings(null); setLoading(true)
       return
     }
     void refresh()
@@ -134,7 +142,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
     }
 
     const channel = supabase.channel('tep-league')
-    for (const table of ['matches', 'teams', 'players', 'messages', 'league_settings']) {
+    for (const table of ['matches', 'teams', 'players', 'messages', 'team_requests', 'league_settings']) {
       channel.on('postgres_changes', { event: '*', schema: 'public', table }, nudge)
     }
     channel.subscribe()
@@ -167,11 +175,13 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
     const activeTeams = teams.filter((t) => t.is_active)
 
     return {
-      loading, teams, players, matches, messages, settings, activeTeams,
+      loading, teams, players, matches, messages, requests, settings, activeTeams,
       pool: players.filter((p) => p.team_id === null && p.is_active),
       availableTeammates: players.filter(
         (p) => p.team_id === null && p.is_active && p.user_id !== null && p.id !== me,
       ),
+      incomingRequests: me ? requests.filter((r) => r.to_player === me) : [],
+      outgoingRequest: me ? requests.find((r) => r.from_player === me) : undefined,
       standings: computeStandings(teams, matches),
       teamById: (id) => (id ? teamsById.get(id) : undefined),
       playerById: (id) => (id ? playersById.get(id) : undefined),
@@ -189,7 +199,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
       potCents: activeTeams.length * (settings?.buy_in_cents ?? 0),
       refresh,
     }
-  }, [loading, teams, players, matches, messages, settings, player, refresh])
+  }, [loading, teams, players, matches, messages, requests, settings, player, refresh])
 
   return <LeagueContext.Provider value={value}>{children}</LeagueContext.Provider>
 }

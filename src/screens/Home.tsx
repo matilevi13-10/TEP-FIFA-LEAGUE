@@ -2,7 +2,8 @@ import { useState } from 'react'
 import { useAuth } from '../lib/auth'
 import { slotsUsed, useLeague } from '../lib/league'
 import { cancelSubmission, confirmMatch, disputeMatch } from '../lib/actions'
-import { AddTeamForm } from '../components/AddTeamForm'
+import { TeamFormation } from '../components/TeamFormation'
+import { TeamNameEditor } from '../components/TeamNameEditor'
 import { useToast } from '../components/Toast'
 import { IconCheck, IconTrophy } from '../components/Icons'
 import { haptic, money, ordinal, timeAgo } from '../lib/format'
@@ -93,7 +94,7 @@ export function Home() {
 
         {myTeam ? (
           <section className="section">
-            <div className="eyebrow">{myTeam.name}</div>
+            <TeamNameEditor team={myTeam} />
             <div className="card">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--s-3)' }}>
                 <Stat label="Rank" value={me ? ordinal(me.rank) : '—'} accent />
@@ -133,9 +134,7 @@ export function Home() {
             </div>
           </section>
         ) : (
-          <section className="section">
-            <AddTeamForm />
-          </section>
+          <TeamFormation />
         )}
 
         {awaitingOthers.length > 0 && (

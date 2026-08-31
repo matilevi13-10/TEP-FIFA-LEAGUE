@@ -94,12 +94,20 @@ can hand that over from Admin → Season.
 
 ### Teams
 
-One person creates the team and names the other half. The teammate is either an
-existing account, picked from a list, or a **placeholder** — just a name. When
-that person signs up under exactly that username, they claim the placeholder and
-land on the team already built for them. Everyone is on at most one team.
+A team is formed by mutual consent and no other way. Everyone without a team
+sits in the **Player Pool**; any of them can send a teammate request to another
+unteamed player, optionally proposing a name. The recipient accepts or declines,
+and the team exists the moment they accept — appearing in the table immediately.
 
-The admin can also pair two people directly, or dissolve a team, as a fallback.
+Typing a name can never bring a player into existence: the only way to become a
+player is to sign yourself up. One live outgoing request per person, cancellable
+at any time, and requests auto-expire once either side joins a team.
+
+Either teammate can rename their team at any point, from their team view. Names
+stay unique, and a rename shows up everywhere at once.
+
+The admin can pair two unteamed players directly, or dissolve a team, as a
+fallback.
 
 ### Writes
 

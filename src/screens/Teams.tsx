@@ -1,6 +1,7 @@
 import { useAuth } from '../lib/auth'
 import { useLeague } from '../lib/league'
-import { AddTeamForm } from '../components/AddTeamForm'
+import { TeamFormation } from '../components/TeamFormation'
+import { TeamNameEditor } from '../components/TeamNameEditor'
 
 export function Teams() {
   const { player } = useAuth()
@@ -20,8 +21,17 @@ export function Teams() {
         </div>
       </div>
 
-      {player.team_id === null && player.is_active && (
-        <section className="section"><AddTeamForm /></section>
+      {player.team_id === null && player.is_active && <TeamFormation />}
+
+      {league.myTeam && (
+        <section className="section">
+          <TeamNameEditor team={league.myTeam} />
+          <div className="card">
+            <div className="t-subhead muted">
+              {league.playersFor(league.myTeam.id).join(' & ')}
+            </div>
+          </div>
+        </section>
       )}
 
       <section className="section">
@@ -69,11 +79,8 @@ export function Teams() {
               <div key={other.id} className="card spread">
                 <div style={{ minWidth: 0 }}>
                   <div className="t-headline">{other.name}</div>
-                  <div className="t-caption dim">
-                    {other.user_id ? 'Signed up · free to be picked' : 'Named by someone, not signed up yet'}
-                  </div>
+                  <div className="t-caption dim">Looking for a teammate</div>
                 </div>
-                {!other.user_id && <span className="pill" style={{ flexShrink: 0 }}>Placeholder</span>}
               </div>
             ))}
           </div>

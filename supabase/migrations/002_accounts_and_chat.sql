@@ -201,6 +201,77 @@ do $$ begin
 exception when duplicate_object then null; end $$;
 
 -- ---------------------------------------------------------------------------
+-- 2c. Placeholder players are gone — a player now exists only by signing up
+-- ---------------------------------------------------------------------------
+
+create table if not exists public.team_requests (
+  id                 uuid primary key default gen_random_uuid(),
+  from_player        uuid not null references public.players(id) on delete cascade,
+  to_player          uuid not null references public.players(id) on delete cascade,
+  proposed_team_name text check (proposed_team_name is null
+                                 or length(btrim(proposed_team_name)) between 1 and 40),
+  status             text not null default 'pending'
+                     check (status in ('pending','accepted','declined','cancelled','expired')),
+  created_at         timestamptz not null default now(),
+  responded_at       timestamptz,
+  constraint different_players check (from_player <> to_player)
+);
+
+create unique index if not exists team_requests_one_outgoing
+  on public.team_requests (from_player) where status = 'pending';
+create index if not exists team_requests_inbox_idx
+  on public.team_requests (to_player) where status = 'pending';
+
+-- A placeholder is a players row with no user_id: a name somebody typed for a
+-- teammate who never signed up. Those cannot be created any more.
+--
+-- Unattached placeholders are removed here — nothing references them and they
+-- would otherwise squat on usernames real people want.
+--
+-- Placeholders that sit ON A TEAM are NOT touched. Deleting one would silently
+-- halve a team that may already have played matches, so they are listed for you
+-- to decide about. Each one keeps its team until you act.
+do $$
+declare r record; free_count int := 0; held_count int := 0;
+begin
+  select count(*) into free_count
+    from public.players where user_id is null and team_id is null;
+
+  if free_count > 0 then
+    delete from public.players where user_id is null and team_id is null;
+    raise notice 'Removed % unattached placeholder player(s).', free_count;
+  else
+    raise notice 'No unattached placeholder players to remove.';
+  end if;
+
+  for r in
+    select p.id as player_id, p.name as player_name, p.slot,
+           t.id as team_id, t.name as team_name,
+           (select string_agg(o.name, ' + ' order by o.slot)
+              from public.players o where o.team_id = t.id) as roster,
+           (select count(*) from public.matches m
+             where m.team_a = t.id or m.team_b = t.id) as match_count
+      from public.players p
+      join public.teams t on t.id = p.team_id
+     where p.user_id is null
+     order by t.name, p.slot
+  loop
+    held_count := held_count + 1;
+    raise warning 'PLACEHOLDER ON A TEAM — team "%" (roster: %), placeholder "%" in slot %, % match(es). Left in place for you to decide.',
+      r.team_name, r.roster, r.player_name, r.slot, r.match_count;
+  end loop;
+
+  if held_count = 0 then
+    raise notice 'No placeholders are attached to a team — nothing needs your decision.';
+  else
+    raise warning '% placeholder(s) above are on teams and were NOT deleted.', held_count;
+    raise warning 'Options per team: (a) that person signs up with the exact username, then '
+                  'update public.players set user_id = <their auth uid> where id = <placeholder id>; '
+                  'or (b) dissolve the team from Admin, freeing the real player back to the pool.';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- 3. Drop what this version replaces
 -- ---------------------------------------------------------------------------
 
@@ -226,8 +297,9 @@ drop function if exists public.send_teammate_request(uuid, text);
 drop function if exists public.cancel_teammate_request(uuid);
 drop function if exists public.decline_teammate_request(uuid);
 drop function if exists public.accept_teammate_request(uuid, text);
-drop function if exists public.expire_requests_for(uuid);
-drop table if exists public.team_requests;
+-- create_team took a teammate *name* and invented a player from it. Gone.
+drop function if exists public.create_team(text, uuid, text);
+drop function if exists public.admin_create_placeholder(text);
 
 -- ---------------------------------------------------------------------------
 -- Identity helpers
@@ -300,6 +372,7 @@ from agg;
 alter table public.teams           enable row level security;
 alter table public.players         enable row level security;
 alter table public.messages        enable row level security;
+alter table public.team_requests   enable row level security;
 alter table public.league_settings enable row level security;
 alter table public.matches         enable row level security;
 
@@ -314,6 +387,11 @@ create policy matches_read on public.matches         for select to authenticated
 drop policy if exists messages_read on public.messages;
 create policy messages_read on public.messages        for select to authenticated using (true);
 
+-- A player sees only the requests they sent or received.
+drop policy if exists requests_read on public.team_requests;
+create policy requests_read on public.team_requests for select to authenticated
+  using (from_player = public.current_player_id() or to_player = public.current_player_id());
+
 
 -- ---------------------------------------------------------------------------
 -- Accounts
@@ -327,9 +405,10 @@ create policy messages_read on public.messages        for select to authenticate
 -- both reconcile through the same core below, so the three paths cannot drift.
 -- ---------------------------------------------------------------------------
 
--- Best-effort: make sure p_uid owns exactly one profile row, preferring the
--- username p_wanted, and hand back its id. Never raises — callers that need to
--- report a problem (a taken username) validate before calling.
+-- Best-effort: make sure p_uid owns exactly one profile row and hand back its
+-- id. Never raises. Players only ever exist by signing themselves up, so this
+-- creates a row for the authenticated user and nothing else — it cannot invent
+-- a player on somebody else's behalf.
 create or replace function public.attach_player(
   p_uid uuid, p_email text, p_wanted text
 ) returns uuid language plpgsql security definer set search_path = public as $$
@@ -338,44 +417,23 @@ declare
   wanted      text := nullif(btrim(coalesce(p_wanted, '')), '');
   admin_email text;
   mine        public.players%rowtype;
-  ph          public.players%rowtype;
   base        text;
   candidate   text;
   n           int := 1;
   new_id      uuid;
-  name_free   boolean := false;
+  name_free   boolean;
 begin
   select lower(btrim(ls.admin_email)) into admin_email
     from public.league_settings ls where ls.id = 1;
 
   select * into mine from public.players where user_id = p_uid;
 
-  -- A placeholder somebody already created under this name, waiting to be
-  -- claimed. It may already sit on a team.
-  if wanted is not null then
-    select * into ph from public.players
-     where lower(btrim(name)) = lower(wanted) and user_id is null
-     limit 1;
-
+  if mine.id is not null then
     select not exists (
       select 1 from public.players
-       where lower(btrim(name)) = lower(wanted)
-         and (mine.id is null or id <> mine.id)
-         and user_id is not null
+       where lower(btrim(name)) = lower(coalesce(wanted, ''))
+         and id <> mine.id
     ) into name_free;
-  end if;
-
-  if mine.id is not null then
-    -- Already have a row. If a placeholder is waiting under the wanted name it
-    -- carries a team, so move into it rather than stranding that membership.
-    if ph.id is not null and ph.id <> mine.id and mine.team_id is null then
-      delete from public.players where id = mine.id;
-      update public.players
-         set user_id = p_uid, email = nullif(my_email, ''), name = wanted,
-             is_admin = (my_email = admin_email)
-       where id = ph.id;
-      return ph.id;
-    end if;
 
     update public.players
        set email    = coalesce(nullif(my_email, ''), email),
@@ -385,16 +443,8 @@ begin
     return mine.id;
   end if;
 
-  if ph.id is not null then
-    update public.players
-       set user_id = p_uid, email = nullif(my_email, ''), name = wanted,
-           is_admin = (my_email = admin_email)
-     where id = ph.id;
-    return ph.id;
-  end if;
-
-  -- Nothing to claim. Take the wanted name, or derive one from the email,
-  -- suffixing until it is free so this can never fail on a collision.
+  -- Take the wanted name, or derive one from the email, suffixing until it is
+  -- free so this can never fail on a collision.
   base := left(coalesce(wanted, nullif(btrim(split_part(my_email, '@', 1)), ''), 'player'), 36);
   candidate := base;
   while exists (select 1 from public.players where lower(btrim(name)) = lower(candidate)) loop
@@ -454,7 +504,6 @@ returns boolean language sql stable security definer set search_path = public as
      and not exists (
        select 1 from public.players
         where lower(btrim(name)) = lower(btrim(p_username))
-          and user_id is not null
      );
 $$;
 
@@ -475,12 +524,11 @@ begin
     raise exception 'Pick a username between 1 and 40 characters.' using errcode = 'P0001';
   end if;
 
-  -- Taken by somebody who has actually signed up (a free placeholder is fair
-  -- game — claiming it is the point).
+  -- Taken by somebody else.
   if exists (
     select 1 from public.players
      where lower(btrim(name)) = lower(wanted)
-       and user_id is not null and user_id <> uid
+       and user_id <> uid
   ) then
     raise exception 'The username "%" is taken. Pick another.', wanted using errcode = 'P0001';
   end if;
@@ -519,26 +567,137 @@ $$;
 -- ---------------------------------------------------------------------------
 -- Teams
 --
--- One person creates the team and names the other half. The teammate is either
--- an existing account or a placeholder name they claim when they sign up.
+-- A team is formed by mutual consent and no other way. One unteamed player
+-- asks another; the team exists only when the second accepts. Nothing here
+-- can bring a player into existence — everyone signs themselves up.
 -- ---------------------------------------------------------------------------
 
-create or replace function public.create_team(
-  p_name text, p_teammate_id uuid default null, p_teammate_name text default null
+-- Kills every live request touching a player. Called whenever they stop being
+-- available, so nobody is left holding a request against someone teamed.
+create or replace function public.expire_requests_for(p_player_id uuid)
+returns void language sql security definer set search_path = public as $$
+  update public.team_requests
+     set status = 'expired', responded_at = now()
+   where status = 'pending'
+     and (from_player = p_player_id or to_player = p_player_id);
+$$;
+
+create or replace function public.send_teammate_request(
+  p_to_player uuid, p_team_name text default null
 ) returns uuid language plpgsql security definer set search_path = public as $$
 declare
-  me       public.players%rowtype;
-  mate     public.players%rowtype;
-  mate_id  uuid;
-  team_name text := nullif(btrim(coalesce(p_name, '')), '');
-  new_team uuid;
+  me     public.players%rowtype;
+  target public.players%rowtype;
+  wanted text := nullif(btrim(coalesce(p_team_name, '')), '');
+  new_id uuid;
 begin
-  select * into me from public.players where user_id = auth.uid() for update;
+  select * into me from public.players where user_id = auth.uid();
   if not found then raise exception 'Not signed in.' using errcode = 'P0001'; end if;
+  if me.id = p_to_player then
+    raise exception 'You cannot team up with yourself.' using errcode = 'P0001';
+  end if;
   if me.team_id is not null then
     raise exception 'You are already on a team.' using errcode = 'P0001';
   end if;
 
+  select * into target from public.players where id = p_to_player;
+  if not found or not target.is_active then
+    raise exception 'That player is not in the league.' using errcode = 'P0002';
+  end if;
+  if target.user_id is null then
+    raise exception 'That player has not signed up yet.' using errcode = 'P0001';
+  end if;
+  if target.team_id is not null then
+    raise exception '% is already on a team.', target.name using errcode = 'P0001';
+  end if;
+  if wanted is not null and length(wanted) > 40 then
+    raise exception 'Team names top out at 40 characters.' using errcode = 'P0001';
+  end if;
+  if wanted is not null
+     and exists (select 1 from public.teams where lower(btrim(name)) = lower(wanted)) then
+    raise exception 'A team called "%" already exists.', wanted using errcode = 'P0001';
+  end if;
+  if exists (select 1 from public.team_requests
+              where from_player = me.id and status = 'pending') then
+    raise exception 'You already have a request out. Cancel it first.' using errcode = 'P0001';
+  end if;
+
+  insert into public.team_requests (from_player, to_player, proposed_team_name)
+  values (me.id, p_to_player, wanted)
+  returning id into new_id;
+  return new_id;
+end;
+$$;
+
+create or replace function public.cancel_teammate_request(p_request_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare me uuid := public.current_player_id(); r public.team_requests%rowtype;
+begin
+  select * into r from public.team_requests where id = p_request_id for update;
+  if not found then raise exception 'Request not found.' using errcode = 'P0002'; end if;
+  if r.from_player <> me then
+    raise exception 'That is not your request to cancel.' using errcode = 'P0001';
+  end if;
+  if r.status <> 'pending' then
+    raise exception 'That request is no longer open.' using errcode = 'P0001';
+  end if;
+  update public.team_requests set status = 'cancelled', responded_at = now()
+   where id = p_request_id;
+end;
+$$;
+
+create or replace function public.decline_teammate_request(p_request_id uuid)
+returns void language plpgsql security definer set search_path = public as $$
+declare me uuid := public.current_player_id(); r public.team_requests%rowtype;
+begin
+  select * into r from public.team_requests where id = p_request_id for update;
+  if not found then raise exception 'Request not found.' using errcode = 'P0002'; end if;
+  if r.to_player <> me then
+    raise exception 'That request was not sent to you.' using errcode = 'P0001';
+  end if;
+  if r.status <> 'pending' then
+    raise exception 'That request is no longer open.' using errcode = 'P0001';
+  end if;
+  update public.team_requests set status = 'declined', responded_at = now()
+   where id = p_request_id;
+end;
+$$;
+
+-- Accepting is what creates the team. The accepting player has the final say on
+-- the name; the proposal is only a default.
+create or replace function public.accept_teammate_request(
+  p_request_id uuid, p_team_name text default null
+) returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  me        uuid := public.current_player_id();
+  r         public.team_requests%rowtype;
+  mate      public.players%rowtype;
+  my_row    public.players%rowtype;
+  team_name text;
+  new_team  uuid;
+begin
+  select * into r from public.team_requests where id = p_request_id for update;
+  if not found then raise exception 'Request not found.' using errcode = 'P0002'; end if;
+  if r.to_player <> me then
+    raise exception 'That request was not sent to you.' using errcode = 'P0001';
+  end if;
+  if r.status <> 'pending' then
+    raise exception 'That request is no longer open.' using errcode = 'P0001';
+  end if;
+
+  select * into my_row from public.players where id = me for update;
+  select * into mate   from public.players where id = r.from_player for update;
+
+  if my_row.team_id is not null then
+    raise exception 'You are already on a team.' using errcode = 'P0001';
+  end if;
+  if mate.team_id is not null then
+    update public.team_requests set status = 'expired', responded_at = now()
+     where id = p_request_id;
+    raise exception '% joined another team first.', mate.name using errcode = 'P0001';
+  end if;
+
+  team_name := nullif(btrim(coalesce(p_team_name, r.proposed_team_name, '')), '');
   if team_name is null then
     raise exception 'Give the team a name.' using errcode = 'P0001';
   end if;
@@ -549,46 +708,43 @@ begin
     raise exception 'A team called "%" already exists.', team_name using errcode = 'P0001';
   end if;
 
-  if p_teammate_id is not null then
-    select * into mate from public.players where id = p_teammate_id for update;
-    if not found then raise exception 'That player does not exist.' using errcode = 'P0002'; end if;
-    if mate.id = me.id then
-      raise exception 'Pick somebody other than yourself.' using errcode = 'P0001';
-    end if;
-    if mate.team_id is not null then
-      raise exception '% is already on a team.', mate.name using errcode = 'P0001';
-    end if;
-    mate_id := mate.id;
-  else
-    if p_teammate_name is null or length(btrim(p_teammate_name)) = 0 then
-      raise exception 'Name your teammate.' using errcode = 'P0001';
-    end if;
-    if length(btrim(p_teammate_name)) > 40 then
-      raise exception 'Names top out at 40 characters.' using errcode = 'P0001';
-    end if;
-    if lower(btrim(p_teammate_name)) = lower(btrim(me.name)) then
-      raise exception 'Pick somebody other than yourself.' using errcode = 'P0001';
-    end if;
+  insert into public.teams (name) values (team_name) returning id into new_team;
 
-    select * into mate from public.players
-     where lower(btrim(name)) = lower(btrim(p_teammate_name)) for update;
+  -- The player who asked takes slot 1, the one who accepted takes slot 2.
+  update public.players set team_id = new_team, slot = 1 where id = mate.id;
+  update public.players set team_id = new_team, slot = 2 where id = me;
 
-    if found then
-      if mate.team_id is not null then
-        raise exception '% is already on a team.', mate.name using errcode = 'P0001';
-      end if;
-      mate_id := mate.id;
-    else
-      -- A placeholder: they claim this row when they sign up under this name.
-      insert into public.players (name) values (btrim(p_teammate_name))
-      returning id into mate_id;
-    end if;
+  update public.team_requests set status = 'accepted', responded_at = now()
+   where id = p_request_id;
+  perform public.expire_requests_for(me);
+  perform public.expire_requests_for(mate.id);
+
+  return new_team;
+end;
+$$;
+
+-- Either teammate can rename their own team, at any time.
+create or replace function public.rename_team(p_name text)
+returns void language plpgsql security definer set search_path = public as $$
+declare me public.players%rowtype; wanted text := nullif(btrim(coalesce(p_name, '')), '');
+begin
+  select * into me from public.players where user_id = auth.uid();
+  if not found then raise exception 'Not signed in.' using errcode = 'P0001'; end if;
+  if me.team_id is null then
+    raise exception 'You are not on a team.' using errcode = 'P0001';
+  end if;
+  if wanted is null then
+    raise exception 'Give the team a name.' using errcode = 'P0001';
+  end if;
+  if length(wanted) > 40 then
+    raise exception 'Team names top out at 40 characters.' using errcode = 'P0001';
+  end if;
+  if exists (select 1 from public.teams
+              where lower(btrim(name)) = lower(wanted) and id <> me.team_id) then
+    raise exception 'A team called "%" already exists.', wanted using errcode = 'P0001';
   end if;
 
-  insert into public.teams (name) values (team_name) returning id into new_team;
-  update public.players set team_id = new_team, slot = 1 where id = me.id;
-  update public.players set team_id = new_team, slot = 2 where id = mate_id;
-  return new_team;
+  update public.teams set name = wanted where id = me.team_id;
 end;
 $$;
 
@@ -972,25 +1128,6 @@ begin
 end;
 $$;
 
--- Creates a placeholder for somebody who has not signed up yet. They claim it
--- by signing up with this exact username. Passwords are Supabase Auth's job, so
--- there is nothing to set here.
-create or replace function public.admin_create_placeholder(p_name text)
-returns uuid language plpgsql security definer set search_path = public as $$
-declare new_id uuid;
-begin
-  perform public.assert_admin();
-  if p_name is null or length(btrim(p_name)) < 1 or length(btrim(p_name)) > 40 then
-    raise exception 'Pick a name between 1 and 40 characters.' using errcode = 'P0001';
-  end if;
-  if exists (select 1 from public.players where lower(btrim(name)) = lower(btrim(p_name))) then
-    raise exception 'A player called "%" already exists.', btrim(p_name) using errcode = 'P0001';
-  end if;
-  insert into public.players (name) values (btrim(p_name)) returning id into new_id;
-  return new_id;
-end;
-$$;
-
 create or replace function public.admin_rename_player(p_player_id uuid, p_name text)
 returns void language plpgsql security definer set search_path = public as $$
 begin
@@ -1043,6 +1180,8 @@ begin
   insert into public.teams (name) values (btrim(p_name)) returning id into new_id;
   update public.players set team_id = new_id, slot = 1 where id = a.id;
   update public.players set team_id = new_id, slot = 2 where id = b.id;
+  perform public.expire_requests_for(a.id);
+  perform public.expire_requests_for(b.id);
   return new_id;
 end;
 $$;
@@ -1248,7 +1387,8 @@ $$;
 
 grant usage on schema public to anon, authenticated;
 grant select on public.teams, public.players, public.league_settings,
-                public.matches, public.standings, public.messages
+                public.matches, public.standings, public.messages,
+                public.team_requests
   to authenticated;
 
 do $$
@@ -1274,13 +1414,16 @@ grant execute on function
   public.current_player_id(),
   public.current_team_id(),
   public.is_admin(),
-  public.create_team(text, uuid, text),
+  public.send_teammate_request(uuid, text),
+  public.cancel_teammate_request(uuid),
+  public.decline_teammate_request(uuid),
+  public.accept_teammate_request(uuid, text),
+  public.rename_team(text),
   public.submit_league_result(uuid, int, int),
   public.submit_playoff_result(uuid, int, int),
   public.confirm_match(uuid),
   public.dispute_match(uuid),
   public.cancel_submission(uuid),
-  public.admin_create_placeholder(text),
   public.admin_rename_player(uuid, text),
   public.admin_delete_player(uuid),
   public.admin_create_team(text, uuid, uuid),
@@ -1303,7 +1446,7 @@ grant execute on function
 do $$
 declare t text;
 begin
-  foreach t in array array['matches','teams','players','league_settings','messages'] loop
+  foreach t in array array['matches','teams','players','league_settings','messages','team_requests'] loop
     begin
       execute format('alter publication supabase_realtime add table public.%I', t);
     exception when duplicate_object then null;
