@@ -45,6 +45,10 @@ your teams, matches and season.
 | **Confirm email** | **OFF** | Accounts have to work the moment someone signs up. Leave this on and nobody can get in. |
 | **Allow new users to sign up** | **ON** | Players create their own accounts. |
 
+If sign-in ever reports that it can't load your profile, the message names the
+cause. "The database is missing its setup" means the migration in step 2 has not
+been run.
+
 Nothing else. No Google, no Apple, no OAuth.
 
 ### 4. Point the app at the project
@@ -70,11 +74,19 @@ which is the identity everyone actually sees — in the table, the chat, and on 
 team. Sign-up is username + email + password; sign-in is email + password. That
 is the whole of it: no OAuth, no codes, no second factor.
 
-A signed-in account always has a profile. If one is ever missing — a sign-up
-interrupted halfway, or a login predating this schema — `ensure_account()`
-creates it from the email address on the next load, so "signed in but not set up"
-is not a state the app can get stuck in. An account with no team simply sees the
-league table and the Add Team form.
+**A signed-in account always has a profile.** A trigger on `auth.users` creates
+it the moment Supabase Auth creates the account, using the username passed as
+sign-up metadata, so the client never has to make it. The trigger claims a
+waiting placeholder if one matches the username, keeping that team.
+
+The trigger is deliberately unable to fail loudly: an exception inside it would
+roll back the auth user and break sign-up altogether, so it warns and lets
+`ensure_account()` repair the row on first load instead. That same function
+covers accounts created before the trigger existed. Both go through one shared
+core (`attach_player`) so the paths cannot drift apart.
+
+An account with no team is a normal state — it sees the league table and the Add
+Team form, never an error.
 
 Whoever signs up with the address in `league_settings.admin_email`
 (**matilevi13@gmail.com** by default) gets the admin controls automatically. You

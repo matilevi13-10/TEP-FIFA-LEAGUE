@@ -1,14 +1,27 @@
 \set ON_ERROR_STOP on
 \pset pager off
 
--- Mirrors the client: supabase.auth.signUp(email, password) → claim_account(username).
+-- Mirrors the client exactly: signUp passes the username as user metadata (so
+-- the trigger can use it), then claim_account reconciles.
 create or replace function signup(p_username text, p_email text) returns uuid
+language plpgsql as $$
+declare uid uuid; begin
+  insert into auth.users (email, raw_user_meta_data)
+  values (lower(p_email), jsonb_build_object('username', p_username))
+  returning id into uid;
+  perform set_config('test.uid', uid::text, false);
+  perform set_config('test.email', lower(p_email), false);
+  return claim_account(p_username);
+end $$;
+
+-- signUp with no metadata, to prove the trigger still produces a usable row.
+create or replace function signup_bare(p_email text) returns uuid
 language plpgsql as $$
 declare uid uuid; begin
   insert into auth.users (email) values (lower(p_email)) returning id into uid;
   perform set_config('test.uid', uid::text, false);
   perform set_config('test.email', lower(p_email), false);
-  return claim_account(p_username);
+  return uid;
 end $$;
 
 -- Mirrors signInWithPassword: the session is just a uid + email claim.
@@ -169,16 +182,18 @@ select t.name, (select count(*) from players p where p.team_id = t.id) as player
 
 \echo '=== 8. a signed-in account with no profile repairs itself ==='
 do $$ declare uid uuid; pid uuid; n_before int; begin
-  select count(*) into n_before from players;
 
-  -- Somebody who exists in auth but never got a profile row (the old stuck login).
+  -- An account that predates the trigger: it exists in auth with no profile.
+  -- Deleting the trigger-created row reproduces exactly that state.
   insert into auth.users (email) values ('orphan@example.com') returning id into uid;
+  delete from players where user_id = uid;
   perform set_config('test.uid', uid::text, false);
   perform set_config('test.email', 'orphan@example.com', false);
 
   if (select id from players where user_id = uid) is not null then
     raise exception 'TEST FAILED: fixture is wrong, profile already exists';
   end if;
+  select count(*) into n_before from players;
 
   pid := ensure_account();
   if pid is null then raise exception 'TEST FAILED: ensure_account returned nothing'; end if;
@@ -202,6 +217,7 @@ end $$;
 do $$ declare uid uuid; begin
   -- A colliding local-part gets a suffix rather than failing.
   insert into auth.users (email) values ('orphan@other.com') returning id into uid;
+  delete from players where user_id = uid;
   perform set_config('test.uid', uid::text, false);
   perform set_config('test.email', 'orphan@other.com', false);
   perform ensure_account();
@@ -215,10 +231,146 @@ end $$;
 do $$ declare uid uuid; begin
   -- The admin address gets the controls even via this path.
   insert into auth.users (email) values ('admin2@example.com') returning id into uid;
+  delete from players where user_id = uid;
   perform set_config('test.uid', uid::text, false);
   perform set_config('test.email', 'matilevi13@gmail.com', false);
   perform ensure_account();
   if not is_admin() then raise exception 'TEST FAILED: admin address did not get admin via ensure_account'; end if;
   raise notice 'ok: admin address recognised through ensure_account too';
   delete from players where user_id = uid;
+  delete from auth.users where id = uid;
+end $$;
+
+\echo '=== 9. the auth trigger creates the profile before the client asks ==='
+do $$ declare uid uuid; pid uuid; begin
+  insert into auth.users (email, raw_user_meta_data)
+  values ('trigger@example.com', jsonb_build_object('username', 'Triggered'))
+  returning id into uid;
+
+  -- No claim_account call at all — the trigger alone must have done it.
+  select id into pid from players where user_id = uid;
+  if pid is null then
+    raise exception 'TEST FAILED: the trigger did not create a profile';
+  end if;
+  if (select name from players where id = pid) <> 'Triggered' then
+    raise exception 'TEST FAILED: trigger ignored the metadata username, got "%"',
+      (select name from players where id = pid);
+  end if;
+  raise notice 'ok: trigger creates the profile from sign-up metadata';
+end $$;
+
+do $$ declare uid uuid; begin
+  -- No metadata at all: still gets a usable row, named from the email.
+  select signup_bare('nometa@example.com') into uid;
+  if (select name from players where user_id = uid) <> 'nometa' then
+    raise exception 'TEST FAILED: no-metadata sign-up got name "%"',
+      (select name from players where user_id = uid);
+  end if;
+  raise notice 'ok: sign-up without metadata still lands a profile';
+end $$;
+
+do $$ declare uid uuid; keep text; begin
+  -- The admin address gets the flag straight from the trigger. Point the league
+  -- at a spare address so this doesn't collide with Mati's account.
+  select admin_email into keep from league_settings where id = 1;
+  update league_settings set admin_email = 'boss@example.com' where id = 1;
+
+  insert into auth.users (email, raw_user_meta_data)
+  values ('boss@example.com', jsonb_build_object('username', 'TheAdmin'))
+  returning id into uid;
+  if not (select is_admin from players where user_id = uid) then
+    raise exception 'TEST FAILED: admin address did not get the flag from the trigger';
+  end if;
+  raise notice 'ok: admin flag set by the trigger';
+
+  delete from players where user_id = uid;
+  delete from auth.users where id = uid;
+  update league_settings set admin_email = keep where id = 1;
+  perform sync_admin_flags();
+end $$;
+
+\echo '=== 10. the trigger claims a placeholder, team and all ==='
+do $$ declare uid uuid; t uuid; ph uuid; begin
+  perform act_as('Tom');   -- Tom is on Route One
+  select id into ph from players where lower(name) = 'rui';   -- claimed earlier
+
+  -- Make a fresh placeholder on a new team.
+  perform signup('Holder','holder@example.com');
+  perform act_as('Holder');
+  t := create_team('Sub Standard', null, 'Ghosty');
+  select id into ph from players where lower(name) = 'ghosty';
+  if (select user_id from players where id = ph) is not null then
+    raise exception 'TEST FAILED: fixture — placeholder should be unclaimed';
+  end if;
+
+  -- Ghosty signs up. The trigger alone should claim that row, not make a second.
+  insert into auth.users (email, raw_user_meta_data)
+  values ('ghosty@example.com', jsonb_build_object('username', 'Ghosty'))
+  returning id into uid;
+
+  if (select count(*) from players where lower(name) = 'ghosty') <> 1 then
+    raise exception 'TEST FAILED: % rows named Ghosty', (select count(*) from players where lower(name)='ghosty');
+  end if;
+  if (select user_id from players where id = ph) <> uid then
+    raise exception 'TEST FAILED: the trigger did not claim the placeholder';
+  end if;
+  if (select team_id from players where id = ph) <> t then
+    raise exception 'TEST FAILED: claimed placeholder lost its team';
+  end if;
+  raise notice 'ok: trigger claims a placeholder and keeps its team';
+end $$;
+
+\echo '=== 11. a broken trigger must never block sign-up ==='
+do $$ declare uid uuid; begin
+  -- Force the inner call to fail, and prove the auth user is still created.
+  alter table public.players add constraint tmp_break check (name <> 'Boom');
+  insert into auth.users (email, raw_user_meta_data)
+  values ('boom@example.com', jsonb_build_object('username', 'Boom'))
+  returning id into uid;
+
+  if uid is null or not exists (select 1 from auth.users where id = uid) then
+    raise exception 'TEST FAILED: a failing trigger rolled back the auth user';
+  end if;
+  raise notice 'ok: sign-up survives a failing trigger';
+
+  alter table public.players drop constraint tmp_break;
+
+  -- ...and ensure_account repairs it on first load, which is the whole point.
+  perform set_config('test.uid', uid::text, false);
+  perform set_config('test.email', 'boom@example.com', false);
+  perform ensure_account();
+  if (select count(*) from players where user_id = uid) <> 1 then
+    raise exception 'TEST FAILED: ensure_account did not repair the orphan';
+  end if;
+  raise notice 'ok: ensure_account repairs what the trigger missed';
+end $$;
+
+\echo '=== 12. username_available, and claim_account on a taken name ==='
+do $$ begin
+  if username_available('Mati') then
+    raise exception 'TEST FAILED: a taken username reported available';
+  end if;
+  if not username_available('Nobody Has This') then
+    raise exception 'TEST FAILED: a free username reported unavailable';
+  end if;
+  if username_available('   ') then
+    raise exception 'TEST FAILED: blank reported available';
+  end if;
+  raise notice 'ok: username_available answers correctly';
+
+  perform act_as('Nico');
+  begin
+    perform claim_account('Mati');
+    raise exception 'TEST FAILED: claimed a username belonging to someone else';
+  exception when sqlstate 'P0001' then raise notice 'ok: taken username rejected'; end;
+end $$;
+
+\echo '=== 13. no signed-in account can end up without a profile ==='
+do $$ declare n int; begin
+  select count(*) into n from auth.users u
+   where not exists (select 1 from players p where p.user_id = u.id);
+  if n <> 0 then
+    raise exception 'TEST FAILED: % auth user(s) have no profile', n;
+  end if;
+  raise notice 'ok: every auth user has exactly one profile';
 end $$;

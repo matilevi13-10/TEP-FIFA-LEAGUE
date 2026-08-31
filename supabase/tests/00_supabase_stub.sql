@@ -4,7 +4,12 @@ create database tep;
 create schema if not exists extensions;
 create extension if not exists pgcrypto with schema extensions;
 create schema if not exists auth;
-create table auth.users (id uuid primary key default gen_random_uuid(), email text unique);
+-- Mirrors the columns the schema actually reads from Supabase's auth.users.
+create table auth.users (
+  id uuid primary key default gen_random_uuid(),
+  email text unique,
+  raw_user_meta_data jsonb not null default '{}'::jsonb
+);
 -- Real Supabase reads the JWT; here we read a session variable so tests can
 -- impersonate any signed-in user.
 create function auth.uid() returns uuid language sql stable as $$

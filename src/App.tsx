@@ -13,7 +13,7 @@ import { Bracket } from './screens/Bracket'
 import { Admin } from './screens/Admin'
 
 export function App() {
-  const { ready, session, player, signOut, reloadPlayer } = useAuth()
+  const { ready, session, player, profileError, signOut, reloadPlayer } = useAuth()
 
   if (!ready) {
     return (
@@ -27,15 +27,19 @@ export function App() {
 
   if (!session) return <SignIn />
 
-  // The profile is created on demand in loadPlayer, so this only shows if that
-  // call could not reach Supabase at all.
+  // A trigger creates the profile when the account is created, and
+  // ensure_account() repairs anything older, so this is genuinely rare. When it
+  // does happen it says why rather than shrugging.
   if (!player) {
     return (
       <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 'var(--s-5)', padding: 'var(--gutter)' }}>
         <Logo height={40} />
-        <p className="muted center t-subhead" style={{ maxWidth: '20rem', margin: 0 }}>
-          Couldn't finish setting up your account. Check your connection and try again.
-        </p>
+        <div className="card" style={{ maxWidth: '26rem' }}>
+          <div className="eyebrow">Couldn't load your profile</div>
+          <p className="t-subhead muted" style={{ margin: 0 }}>
+            {profileError ?? 'Something went wrong. Check your connection and try again.'}
+          </p>
+        </div>
         <div className="row" style={{ gap: 'var(--s-2)' }}>
           <button className="btn btn--primary" onClick={() => void reloadPlayer()}>Try again</button>
           <button className="btn btn--ghost" onClick={() => void signOut()}>Sign out</button>

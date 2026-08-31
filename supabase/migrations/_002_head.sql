@@ -38,6 +38,37 @@ create extension if not exists pgcrypto with schema extensions;
 -- 1. Structure
 -- ---------------------------------------------------------------------------
 
+-- The very first schema kept both player names as columns on teams. If this
+-- database still looks like that, build the players table and move them across
+-- before anything else touches it.
+do $$
+begin
+  if to_regclass('public.players') is null then
+    create table public.players (
+      id         uuid primary key default gen_random_uuid(),
+      team_id    uuid references public.teams(id) on delete set null,
+      name       text not null,
+      slot       smallint check (slot in (1, 2)),
+      created_at timestamptz not null default now()
+    );
+
+    if exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'teams' and column_name = 'player_one'
+    ) then
+      execute $mig$
+        insert into public.players (team_id, name, slot)
+        select id, btrim(player_one), 1 from public.teams where btrim(coalesce(player_one,'')) <> ''
+        union all
+        select id, btrim(player_two), 2 from public.teams where btrim(coalesce(player_two,'')) <> ''
+      $mig$;
+      alter table public.teams drop column if exists player_one;
+      alter table public.teams drop column if exists player_two;
+      raise notice 'Moved player names off teams into the players table.';
+    end if;
+  end if;
+end $$;
+
 alter table public.players add column if not exists user_id   uuid unique references auth.users(id) on delete set null;
 alter table public.players add column if not exists email     text;
 alter table public.players add column if not exists is_admin  boolean not null default false;

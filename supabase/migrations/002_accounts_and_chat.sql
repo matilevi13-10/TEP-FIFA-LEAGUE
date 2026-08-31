@@ -38,6 +38,37 @@ create extension if not exists pgcrypto with schema extensions;
 -- 1. Structure
 -- ---------------------------------------------------------------------------
 
+-- The very first schema kept both player names as columns on teams. If this
+-- database still looks like that, build the players table and move them across
+-- before anything else touches it.
+do $$
+begin
+  if to_regclass('public.players') is null then
+    create table public.players (
+      id         uuid primary key default gen_random_uuid(),
+      team_id    uuid references public.teams(id) on delete set null,
+      name       text not null,
+      slot       smallint check (slot in (1, 2)),
+      created_at timestamptz not null default now()
+    );
+
+    if exists (
+      select 1 from information_schema.columns
+       where table_schema = 'public' and table_name = 'teams' and column_name = 'player_one'
+    ) then
+      execute $mig$
+        insert into public.players (team_id, name, slot)
+        select id, btrim(player_one), 1 from public.teams where btrim(coalesce(player_one,'')) <> ''
+        union all
+        select id, btrim(player_two), 2 from public.teams where btrim(coalesce(player_two,'')) <> ''
+      $mig$;
+      alter table public.teams drop column if exists player_one;
+      alter table public.teams drop column if exists player_two;
+      raise notice 'Moved player names off teams into the players table.';
+    end if;
+  end if;
+end $$;
+
 alter table public.players add column if not exists user_id   uuid unique references auth.users(id) on delete set null;
 alter table public.players add column if not exists email     text;
 alter table public.players add column if not exists is_admin  boolean not null default false;
@@ -289,122 +320,199 @@ create policy messages_read on public.messages        for select to authenticate
 --
 -- Supabase Auth owns email and password. This layer owns the username, which
 -- is the identity everyone actually sees, and works out who the admin is.
+--
+-- A profile row is created by a trigger the instant the auth user is created,
+-- so a signed-in account without a profile is not a state that can occur. The
+-- client never inserts into players itself; claim_account and ensure_account
+-- both reconcile through the same core below, so the three paths cannot drift.
 -- ---------------------------------------------------------------------------
 
--- Called once, straight after signUp, to attach a username to the new auth
--- user. If somebody already named this person as a teammate, the placeholder
--- row is claimed instead of creating a second one.
-create or replace function public.claim_account(p_username text)
-returns uuid language plpgsql security definer set search_path = public as $$
+-- Best-effort: make sure p_uid owns exactly one profile row, preferring the
+-- username p_wanted, and hand back its id. Never raises — callers that need to
+-- report a problem (a taken username) validate before calling.
+create or replace function public.attach_player(
+  p_uid uuid, p_email text, p_wanted text
+) returns uuid language plpgsql security definer set search_path = public as $$
 declare
-  uid         uuid := auth.uid();
-  my_email    text := lower(btrim(coalesce(auth.jwt() ->> 'email', '')));
+  my_email    text := lower(btrim(coalesce(p_email, '')));
+  wanted      text := nullif(btrim(coalesce(p_wanted, '')), '');
   admin_email text;
-  existing    public.players%rowtype;
-  pid         uuid;
-begin
-  if uid is null then
-    raise exception 'Not signed in.' using errcode = 'P0001';
-  end if;
-  if p_username is null or length(btrim(p_username)) < 1 or length(btrim(p_username)) > 40 then
-    raise exception 'Pick a username between 1 and 40 characters.' using errcode = 'P0001';
-  end if;
-
-  -- Already set up (a repeated call, or a page reload mid sign-up).
-  select id into pid from public.players where user_id = uid;
-  if pid is not null then
-    return pid;
-  end if;
-
-  select lower(btrim(ls.admin_email)) into admin_email from public.league_settings ls where ls.id = 1;
-
-  select * into existing from public.players
-   where lower(btrim(name)) = lower(btrim(p_username));
-
-  if found then
-    if existing.user_id is not null then
-      raise exception 'The username "%" is taken. Pick another.', btrim(p_username)
-        using errcode = 'P0001';
-    end if;
-    -- Claim the placeholder somebody created for them, team and all.
-    update public.players
-       set user_id = uid, email = my_email,
-           name = btrim(p_username),
-           is_admin = (my_email = admin_email)
-     where id = existing.id
-    returning id into pid;
-  else
-    insert into public.players (user_id, email, name, is_admin)
-    values (uid, my_email, btrim(p_username), my_email = admin_email)
-    returning id into pid;
-  end if;
-
-  return pid;
-end;
-$$;
-
--- Guarantees the signed-in user has a profile row, inventing a username from
--- their email if they somehow arrived without one (an account created before
--- this schema, or a sign-up interrupted between signUp and claim_account).
--- There is no such thing as a signed-in user with no profile.
-create or replace function public.ensure_account()
-returns uuid language plpgsql security definer set search_path = public as $$
-declare
-  uid         uuid := auth.uid();
-  my_email    text := lower(btrim(coalesce(auth.jwt() ->> 'email', '')));
-  admin_email text;
+  mine        public.players%rowtype;
+  ph          public.players%rowtype;
   base        text;
   candidate   text;
   n           int := 1;
-  pid         uuid;
+  new_id      uuid;
+  name_free   boolean := false;
 begin
-  if uid is null then
-    raise exception 'Not signed in.' using errcode = 'P0001';
-  end if;
-
-  select id into pid from public.players where user_id = uid;
-  if pid is not null then
-    -- Keep the email and admin flag current on every sign-in.
-    select lower(btrim(ls.admin_email)) into admin_email
-      from public.league_settings ls where ls.id = 1;
-    update public.players
-       set email = coalesce(nullif(my_email, ''), email),
-           is_admin = (coalesce(nullif(my_email, ''), email) = admin_email)
-     where id = pid;
-    return pid;
-  end if;
-
   select lower(btrim(ls.admin_email)) into admin_email
     from public.league_settings ls where ls.id = 1;
 
-  -- Take the part before the @, fall back to "player".
-  base := nullif(btrim(split_part(my_email, '@', 1)), '');
-  base := left(coalesce(base, 'player'), 36);
-  candidate := base;
+  select * into mine from public.players where user_id = p_uid;
 
+  -- A placeholder somebody already created under this name, waiting to be
+  -- claimed. It may already sit on a team.
+  if wanted is not null then
+    select * into ph from public.players
+     where lower(btrim(name)) = lower(wanted) and user_id is null
+     limit 1;
+
+    select not exists (
+      select 1 from public.players
+       where lower(btrim(name)) = lower(wanted)
+         and (mine.id is null or id <> mine.id)
+         and user_id is not null
+    ) into name_free;
+  end if;
+
+  if mine.id is not null then
+    -- Already have a row. If a placeholder is waiting under the wanted name it
+    -- carries a team, so move into it rather than stranding that membership.
+    if ph.id is not null and ph.id <> mine.id and mine.team_id is null then
+      delete from public.players where id = mine.id;
+      update public.players
+         set user_id = p_uid, email = nullif(my_email, ''), name = wanted,
+             is_admin = (my_email = admin_email)
+       where id = ph.id;
+      return ph.id;
+    end if;
+
+    update public.players
+       set email    = coalesce(nullif(my_email, ''), email),
+           name     = case when wanted is not null and name_free then wanted else name end,
+           is_admin = (lower(btrim(coalesce(nullif(my_email, ''), email, ''))) = admin_email)
+     where id = mine.id;
+    return mine.id;
+  end if;
+
+  if ph.id is not null then
+    update public.players
+       set user_id = p_uid, email = nullif(my_email, ''), name = wanted,
+           is_admin = (my_email = admin_email)
+     where id = ph.id;
+    return ph.id;
+  end if;
+
+  -- Nothing to claim. Take the wanted name, or derive one from the email,
+  -- suffixing until it is free so this can never fail on a collision.
+  base := left(coalesce(wanted, nullif(btrim(split_part(my_email, '@', 1)), ''), 'player'), 36);
+  candidate := base;
   while exists (select 1 from public.players where lower(btrim(name)) = lower(candidate)) loop
     n := n + 1;
     candidate := base || ' ' || n;
   end loop;
 
   insert into public.players (user_id, email, name, is_admin)
-  values (uid, nullif(my_email, ''), candidate, my_email = admin_email)
-  returning id into pid;
-
-  return pid;
+  values (p_uid, nullif(my_email, ''), candidate, my_email = admin_email)
+  returning id into new_id;
+  return new_id;
 end;
 $$;
 
--- Keeps the admin flag honest if the admin address is ever changed, and after
--- the very first sign-up.
+-- Fires the moment Supabase Auth creates the user, so the profile exists before
+-- the client asks for it. The username comes from the sign-up metadata.
+--
+-- This must never raise: an exception here would roll back the auth user and
+-- break sign-up entirely, which is worse than the problem it solves. On failure
+-- it warns and lets ensure_account() repair the row on first load.
+create or replace function public.handle_new_auth_user()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  perform public.attach_player(
+    new.id,
+    new.email,
+    nullif(btrim(coalesce(new.raw_user_meta_data ->> 'username', '')), '')
+  );
+  return new;
+exception when others then
+  raise warning 'handle_new_auth_user could not create a profile for %: %', new.id, sqlerrm;
+  return new;
+end;
+$$;
+
+-- auth.users belongs to Supabase, so attaching to it can be refused on some
+-- projects. Losing the trigger is survivable — ensure_account() still repairs
+-- the row on first load — but losing the whole migration is not, so a refusal
+-- warns instead of aborting.
+do $$
+begin
+  drop trigger if exists on_auth_user_created on auth.users;
+  create trigger on_auth_user_created
+    after insert on auth.users
+    for each row execute function public.handle_new_auth_user();
+  raise notice 'Auth trigger installed: profiles are created with the account.';
+exception when insufficient_privilege or undefined_table then
+  raise warning 'Could not attach the trigger to auth.users (%). Profiles will '
+                'instead be created by ensure_account() on first load.', sqlerrm;
+end $$;
+
+-- Lets the sign-up form say "that one's taken" before creating the account,
+-- rather than after. Anonymous, and tells you nothing but yes/no.
+create or replace function public.username_available(p_username text)
+returns boolean language sql stable security definer set search_path = public as $$
+  select nullif(btrim(coalesce(p_username, '')), '') is not null
+     and not exists (
+       select 1 from public.players
+        where lower(btrim(name)) = lower(btrim(p_username))
+          and user_id is not null
+     );
+$$;
+
+-- Called straight after signUp to settle the username. The trigger has usually
+-- done the work already; this reconciles the cases it could not (metadata
+-- missing, or an account created before the trigger existed).
+create or replace function public.claim_account(p_username text)
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  uid      uuid := auth.uid();
+  my_email text := lower(btrim(coalesce(auth.jwt() ->> 'email', '')));
+  wanted   text := nullif(btrim(coalesce(p_username, '')), '');
+begin
+  if uid is null then
+    raise exception 'Not signed in.' using errcode = 'P0001';
+  end if;
+  if wanted is null or length(wanted) > 40 then
+    raise exception 'Pick a username between 1 and 40 characters.' using errcode = 'P0001';
+  end if;
+
+  -- Taken by somebody who has actually signed up (a free placeholder is fair
+  -- game — claiming it is the point).
+  if exists (
+    select 1 from public.players
+     where lower(btrim(name)) = lower(wanted)
+       and user_id is not null and user_id <> uid
+  ) then
+    raise exception 'The username "%" is taken. Pick another.', wanted using errcode = 'P0001';
+  end if;
+
+  return public.attach_player(uid, my_email, wanted);
+end;
+$$;
+
+-- Re-derives every admin flag from the configured address. Called after the
+-- admin email changes, so the controls move with it.
 create or replace function public.sync_admin_flags()
 returns void language plpgsql security definer set search_path = public as $$
 declare admin_email text;
 begin
-  select lower(btrim(ls.admin_email)) into admin_email from public.league_settings ls where ls.id = 1;
+  select lower(btrim(ls.admin_email)) into admin_email
+    from public.league_settings ls where ls.id = 1;
   update public.players
      set is_admin = (lower(btrim(coalesce(email, ''))) = admin_email)
    where is_admin is distinct from (lower(btrim(coalesce(email, ''))) = admin_email);
+end;
+$$;
+
+-- Safety net for a signed-in account with no profile — one created before the
+-- trigger existed, or a sign-up interrupted midway. Idempotent.
+create or replace function public.ensure_account()
+returns uuid language plpgsql security definer set search_path = public as $$
+declare uid uuid := auth.uid();
+begin
+  if uid is null then
+    raise exception 'Not signed in.' using errcode = 'P0001';
+  end if;
+  return public.attach_player(uid, lower(btrim(coalesce(auth.jwt() ->> 'email', ''))), null);
 end;
 $$;
 
@@ -1155,6 +1263,10 @@ begin
   end loop;
 end;
 $$;
+
+grant execute on function
+  public.username_available(text)
+  to anon, authenticated;
 
 grant execute on function
   public.claim_account(text),

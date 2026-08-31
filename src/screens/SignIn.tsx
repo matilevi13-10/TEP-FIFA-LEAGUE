@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Logo } from '../components/Logo'
 import { useAuth } from '../lib/auth'
-import { isConfigured, readableError } from '../lib/supabase'
+import { isConfigured, readableError, supabase } from '../lib/supabase'
 import { haptic } from '../lib/format'
 
 type Mode = 'in' | 'up'
@@ -14,10 +14,28 @@ export function SignIn() {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [nameTaken, setNameTaken] = useState(false)
 
   const creating = mode === 'up'
+
+  // Check the username while they type, so a collision surfaces here rather
+  // than after the account already exists.
+  useEffect(() => {
+    const wanted = username.trim()
+    if (!creating || wanted.length === 0 || !isConfigured) {
+      setNameTaken(false)
+      return
+    }
+    let cancelled = false
+    const timer = window.setTimeout(async () => {
+      const { data, error: rpcError } = await supabase.rpc('username_available', { p_username: wanted })
+      if (cancelled || rpcError) return
+      setNameTaken(data === false)
+    }, 350)
+    return () => { cancelled = true; window.clearTimeout(timer) }
+  }, [username, creating])
   const ready = creating
-    ? username.trim().length > 0 && email.trim().length > 3 && password.length >= 6
+    ? username.trim().length > 0 && !nameTaken && email.trim().length > 3 && password.length >= 6
     : email.trim().length > 3 && password.length > 0
 
   const submit = async (event: React.FormEvent) => {
@@ -58,10 +76,17 @@ export function SignIn() {
           <div className="field">
             <label className="field__label" htmlFor="username">Username</label>
             <input
-              id="username" className="input" autoFocus autoCapitalize="none" maxLength={40}
+              id="username" autoFocus autoCapitalize="none" maxLength={40}
               autoComplete="username" placeholder="What everyone calls you"
+              className={`input${nameTaken ? ' input--invalid' : ''}`}
+              aria-invalid={nameTaken || undefined}
               value={username} onChange={(e) => setUsername(e.target.value)}
             />
+            {nameTaken && (
+              <p className="field__hint field__hint--bad" role="alert">
+                “{username.trim()}” is taken. Pick another.
+              </p>
+            )}
           </div>
         )}
 
