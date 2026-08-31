@@ -29,6 +29,9 @@ export const acceptTeammateRequest = (requestId: string, teamName: string | null
 /** Either teammate can rename their own team. */
 export const renameTeam = (name: string) => call('rename_team', { p_name: name })
 
+/** Dissolves the team and returns both players to the pool. Pre-season only. */
+export const leaveTeam = () => call('leave_team')
+
 // ── Matches ───────────────────────────────────────────────────────────────
 export const submitLeagueResult = (opponentId: string, myScore: number, opponentScore: number) =>
   call<string>('submit_league_result', {
@@ -78,6 +81,9 @@ export const adminUpdateSettings = (
     p_season_name: seasonName, p_games_per_team: gamesPerTeam,
     p_buy_in_cents: buyInCents, p_playoff_size: playoffSize, p_admin_email: adminEmail,
   })
+
+export const adminSetSeasonStarted = (started: boolean) =>
+  call('admin_set_season_started', { p_started: started })
 
 export const adminStartPlayoffs = (size: number) => call('admin_start_playoffs', { p_size: size })
 export const adminResetPlayoffs = () => call('admin_reset_playoffs')

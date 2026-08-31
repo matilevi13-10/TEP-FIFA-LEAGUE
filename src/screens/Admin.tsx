@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../lib/auth'
 import { useLeague } from '../lib/league'
 import {
-  adminCreateTeam, adminDeleteMessage, adminDeletePlayer,
+  adminCreateTeam, adminDeleteMessage, adminDeletePlayer, adminSetSeasonStarted,
   adminDissolveTeam, adminRenamePlayer, adminResetPlayoffs, adminResolveMatch,
   adminStartPlayoffs, adminUpdateSettings, adminUpdateTeam, adminVoidMatch,
 } from '../lib/actions'
@@ -51,6 +51,7 @@ export function Admin() {
       </div>
 
       <NeedsAttention run={run} />
+      <SeasonState run={run} />
       <SeasonSettings run={run} />
       <Playoffs run={run} />
       <TeamsAdmin run={run} />
@@ -129,6 +130,63 @@ function MatchRow({ match, run }: { match: Match; run: Run }) {
           onConfirm={() => act(() => adminVoidMatch(match.id, 'Voided by admin'), 'Match voided.')} />
       </div>
     </div>
+  )
+}
+
+// ── Season state ──────────────────────────────────────────────────────────
+
+function SeasonState({ run }: { run: Run }) {
+  const league = useLeague()
+  const [busy, setBusy] = useState(false)
+  const started = league.seasonStarted
+  const locked = league.matches.some((m) => m.status === 'confirmed')
+    || (league.settings?.phase ?? 'league') !== 'league'
+
+  const set = async (next: boolean) => {
+    setBusy(true)
+    await run(() => adminSetSeasonStarted(next),
+      next ? 'Season started.' : 'Back to pre-season.')
+    setBusy(false)
+  }
+
+  return (
+    <section className="section">
+      <div className="eyebrow">Season state</div>
+      <div className="card stack">
+        <div className="spread">
+          <div style={{ minWidth: 0 }}>
+            <div className="t-headline">{started ? 'Season is running' : 'Pre-season'}</div>
+            <div className="t-caption dim">
+              {started
+                ? 'Players can no longer leave their own teams.'
+                : 'Either teammate can still walk away and dissolve their team.'}
+            </div>
+          </div>
+          <span className={`pill${started ? ' pill--accent' : ''}`} style={{ flexShrink: 0 }}>
+            {started ? 'Started' : 'Open'}
+          </span>
+        </div>
+
+        {locked ? (
+          <p className="field__hint" style={{ padding: 0 }}>
+            Results have already been confirmed, so the season counts as started
+            whatever this is set to. Use Admin → Teams to change a team now.
+          </p>
+        ) : started ? (
+          <button className="btn btn--ghost btn--block" disabled={busy} onClick={() => set(false)}>
+            Reopen pre-season
+          </button>
+        ) : (
+          <ConfirmButton
+            className="btn btn--primary btn--block"
+            disabled={busy}
+            label="Start the season"
+            confirmLabel="Confirm — players can no longer leave their teams"
+            onConfirm={() => set(true)}
+          />
+        )}
+      </div>
+    </section>
   )
 }
 

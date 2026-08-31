@@ -83,8 +83,11 @@ export function TeamFormation() {
           <div className="eyebrow">Your request</div>
           <div className="card spread">
             <div style={{ minWidth: 0 }}>
-              <div className="t-headline">
-                Waiting on {league.playerById(outgoingRequest.to_player)?.name ?? 'them'}
+              <div className="t-headline row" style={{ gap: 'var(--s-2)' }}>
+                <span className="pill pill--live" style={{ height: '1.375rem' }}>Waiting</span>
+                <span className="truncate">
+                  on {league.playerById(outgoingRequest.to_player)?.name ?? 'them'}
+                </span>
               </div>
               <div className="t-caption dim">
                 {outgoingRequest.proposed_team_name

@@ -25,6 +25,10 @@ do $$ begin
     perform admin_update_settings('Hijacked', 10, 5000, 8, 'attacker@example.com');
     raise exception 'TEST FAILED: non-admin changed league settings';
   exception when sqlstate 'P0001' then raise notice 'ok: admin_update_settings blocked'; end;
+  begin
+    perform admin_set_season_started(false);
+    raise exception 'TEST FAILED: non-admin reopened the season';
+  exception when sqlstate 'P0001' then raise notice 'ok: admin_set_season_started blocked'; end;
 end $$;
 
 \echo '=== 24. as the authenticated role: reads allowed, writes denied ==='

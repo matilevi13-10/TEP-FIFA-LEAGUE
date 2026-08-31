@@ -90,6 +90,25 @@ alter table public.players add constraint players_team_id_fkey
 alter table public.league_settings
   add column if not exists admin_email text not null default 'matilevi13@gmail.com';
 
+-- Null means the season has not opened yet, which is what lets either teammate
+-- dissolve their own team. Existing leagues that have already played are
+-- back-filled below so nobody can suddenly walk out of a team mid-season.
+alter table public.league_settings
+  add column if not exists season_started_at timestamptz;
+
+do $$
+begin
+  if exists (select 1 from public.matches where status = 'confirmed')
+     and (select season_started_at is null from public.league_settings where id = 1) then
+    update public.league_settings
+       set season_started_at = coalesce(
+             (select min(confirmed_at) from public.matches where status = 'confirmed'),
+             now())
+     where id = 1;
+    raise notice 'Results already exist — season marked as started, so teams are locked.';
+  end if;
+end $$;
+
 create table if not exists public.messages (
   id          uuid primary key default gen_random_uuid(),
   kind        text not null default 'chat' check (kind in ('chat','result','taunt')),
@@ -565,6 +584,34 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- Season state
+-- ---------------------------------------------------------------------------
+
+-- The season has started if the admin said so, or if anything has actually
+-- happened — a confirmed result, or the playoffs. The last two matter because
+-- an admin who forgets to press the button should not leave the league in a
+-- state where somebody can dissolve a team that has already played.
+create or replace function public.season_has_started()
+returns boolean language sql stable security definer set search_path = public as $$
+  select coalesce(
+           (select ls.season_started_at is not null or ls.phase <> 'league'
+              from public.league_settings ls where ls.id = 1),
+           false)
+      or exists (select 1 from public.matches where status = 'confirmed');
+$$;
+
+create or replace function public.admin_set_season_started(p_started boolean)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  perform public.assert_admin();
+  update public.league_settings
+     set season_started_at = case when p_started then coalesce(season_started_at, now()) end,
+         updated_at = now()
+   where id = 1;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Teams
 --
 -- A team is formed by mutual consent and no other way. One unteamed player
@@ -720,6 +767,41 @@ begin
   perform public.expire_requests_for(mate.id);
 
   return new_team;
+end;
+$$;
+
+-- Either teammate can walk away while the season has not started. It dissolves
+-- the team outright rather than leaving somebody stranded in a team of one, so
+-- both players land back in the pool and the name is free again.
+create or replace function public.leave_team()
+returns void language plpgsql security definer set search_path = public as $$
+declare
+  me       public.players%rowtype;
+  team_row public.teams%rowtype;
+  mate_id  uuid;
+begin
+  select * into me from public.players where user_id = auth.uid() for update;
+  if not found then raise exception 'Not signed in.' using errcode = 'P0001'; end if;
+  if me.team_id is null then
+    raise exception 'You are not on a team.' using errcode = 'P0001';
+  end if;
+  if public.season_has_started() then
+    raise exception 'The season has started — ask the admin to change teams now.'
+      using errcode = 'P0001';
+  end if;
+
+  select * into team_row from public.teams where id = me.team_id for update;
+  select id into mate_id from public.players
+   where team_id = me.team_id and id <> me.id limit 1;
+
+  -- Free both before the team goes, so slot never outlives team_id.
+  update public.players set team_id = null, slot = null where team_id = team_row.id;
+  delete from public.matches where team_a = team_row.id or team_b = team_row.id;
+  delete from public.teams where id = team_row.id;
+
+  -- Everyone starts fresh: old requests stay expired rather than coming back.
+  perform public.expire_requests_for(me.id);
+  if mate_id is not null then perform public.expire_requests_for(mate_id); end if;
 end;
 $$;
 
@@ -1419,6 +1501,8 @@ grant execute on function
   public.decline_teammate_request(uuid),
   public.accept_teammate_request(uuid, text),
   public.rename_team(text),
+  public.leave_team(),
+  public.season_has_started(),
   public.submit_league_result(uuid, int, int),
   public.submit_playoff_result(uuid, int, int),
   public.confirm_match(uuid),
@@ -1430,6 +1514,7 @@ grant execute on function
   public.admin_update_team(uuid, text, boolean, boolean),
   public.admin_dissolve_team(uuid),
   public.admin_update_settings(text, int, int, int, text),
+  public.admin_set_season_started(boolean),
   public.admin_start_playoffs(int),
   public.admin_reset_playoffs(),
   public.admin_resolve_match(uuid, int, int, text),

@@ -24,6 +24,21 @@ declare r uuid; begin
   return accept_teammate_request(r, null);
 end $$;
 
+create or replace function act_as_team(p_team text) returns void language plpgsql as $$
+declare n text; begin
+  select p.name into n from players p join teams t on t.id = p.team_id
+   where t.name = p_team and p.user_id is not null order by p.slot limit 1;
+  perform act_as(n);
+end $$;
+
+create or replace function play(w text, l text, ws int, ls int) returns void
+language plpgsql as $$
+declare mid uuid; lid uuid; begin
+  perform act_as_team(w); select id into lid from teams where name = l;
+  mid := submit_league_result(lid, ws, ls);
+  perform act_as_team(l); perform confirm_match(mid);
+end $$;
+
 -- signUp with no metadata, to prove the trigger still produces a usable row.
 create or replace function signup_bare(p_email text) returns uuid
 language plpgsql as $$
@@ -458,4 +473,107 @@ do $$ declare n int; begin
     raise exception 'TEST FAILED: % auth user(s) have no profile', n;
   end if;
   raise notice 'ok: every auth user has exactly one profile';
+end $$;
+
+\echo '=== 14. leaving a team before the season starts ==='
+select signup('Quitter','quitter@example.com'), signup('Stranded','stranded@example.com'),
+       signup('Hopeful','hopeful@example.com');
+
+do $$ declare t uuid; r uuid; begin
+  -- Hopeful asks Quitter, gets declined; that request must never come back.
+  perform act_as('Hopeful');
+  r := send_teammate_request((select id from players where name='Quitter'), 'Wishful');
+  perform act_as('Quitter');
+  perform decline_teammate_request(r);
+
+  t := pair('Quitter','Stranded','Short Lived');
+  if t is null then raise exception 'TEST FAILED: fixture team not formed'; end if;
+
+  if season_has_started() then
+    raise exception 'TEST FAILED: season reads as started with no results';
+  end if;
+  raise notice 'ok: pre-season while nothing has happened';
+
+  -- Either member can go; here it is the one who accepted (slot 2).
+  perform act_as('Stranded');
+  perform leave_team();
+
+  if exists (select 1 from teams where name='Short Lived') then
+    raise exception 'TEST FAILED: the team survived';
+  end if;
+  raise notice 'ok: leaving dissolved the team';
+
+  if (select count(*) from players
+       where name in ('Quitter','Stranded') and team_id is null and slot is null) <> 2 then
+    raise exception 'TEST FAILED: both players did not return to the pool';
+  end if;
+  raise notice 'ok: both players are back in the pool, unteamed';
+
+  -- The declined request stays declined.
+  if (select status from team_requests where id = r) <> 'declined' then
+    raise exception 'TEST FAILED: an old request was resurrected as "%"',
+      (select status from team_requests where id = r);
+  end if;
+  raise notice 'ok: old requests are not resurrected';
+
+  -- The name is free again.
+  perform act_as('Quitter');
+  perform send_teammate_request((select id from players where name='Stranded'), 'Short Lived');
+  perform act_as('Stranded');
+  perform accept_teammate_request(
+    (select id from team_requests where from_player=(select id from players where name='Quitter')
+       and status='pending'), null);
+  if not exists (select 1 from teams where name='Short Lived') then
+    raise exception 'TEST FAILED: the freed name could not be reused';
+  end if;
+  raise notice 'ok: the team name was freed and reused';
+end $$;
+
+\echo '=== 14b. once the season starts, leaving is gone ==='
+do $$ begin
+  perform act_as('Mati');
+  perform admin_set_season_started(true);
+  if not season_has_started() then
+    raise exception 'TEST FAILED: admin start did not register';
+  end if;
+  raise notice 'ok: admin can start the season';
+
+  perform act_as('Quitter');
+  begin
+    perform leave_team();
+    raise exception 'TEST FAILED: left a team after the season started';
+  exception when sqlstate 'P0001' then raise notice 'ok: leaving blocked once started'; end;
+
+  -- reopening is the admin's call too
+  perform act_as('Mati');
+  perform admin_set_season_started(false);
+  if season_has_started() then
+    raise exception 'TEST FAILED: could not reopen the pre-season';
+  end if;
+  raise notice 'ok: admin can reopen the pre-season';
+end $$;
+
+do $$ begin
+  -- A confirmed result counts as started even if the admin never pressed start.
+  if not season_has_started() then raise notice 'ok: still pre-season before any result'; end if;
+  perform play('Los Galácticos','Tiki Taka', 2, 1);
+  if not season_has_started() then
+    raise exception 'TEST FAILED: a confirmed result did not start the season';
+  end if;
+  raise notice 'ok: a confirmed result starts the season on its own';
+
+  perform act_as('Quitter');
+  begin
+    perform leave_team();
+    raise exception 'TEST FAILED: left a team after a result was confirmed';
+  exception when sqlstate 'P0001' then raise notice 'ok: leaving blocked by a played match'; end;
+end $$;
+
+do $$ begin
+  -- Somebody with no team has nothing to leave.
+  perform act_as('Hopeful');
+  begin
+    perform leave_team();
+    raise exception 'TEST FAILED: a teamless player left something';
+  exception when sqlstate 'P0001' then raise notice 'ok: teamless players cannot leave'; end;
 end $$;

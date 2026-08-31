@@ -74,6 +74,8 @@ export interface Settings {
   buy_in_cents: number
   /** Whoever signs in with this address gets the admin controls. */
   admin_email: string
+  /** Null until the admin opens the season. */
+  season_started_at: string | null
   playoff_size: number | null
   phase: Phase
   champion_team_id: string | null

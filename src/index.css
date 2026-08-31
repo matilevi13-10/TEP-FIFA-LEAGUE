@@ -761,3 +761,83 @@ select.input {
   .card, .matchup, .input { border-width: 1.5px; }
   .btn--ghost { border-width: 1.5px; }
 }
+
+/* ── Teammate request card ──────────────────────────────────────────────── */
+
+.request {
+  animation: request-in var(--dur-sheet) var(--ease-sheet) both;
+}
+@keyframes request-in {
+  from { opacity: 0; transform: translate3d(0, -10px, 0) scale(0.97); }
+}
+/* One pulse of the glow on arrival, then it settles. A card that keeps
+   pulsing stops being a signal and becomes an alarm. */
+.request--arriving { animation: request-in var(--dur-sheet) var(--ease-sheet) both, arrive 1.4s var(--ease-out); }
+@keyframes arrive {
+  0%   { box-shadow: var(--edge), var(--sh-2); }
+  35%  { box-shadow: var(--edge), 0 0 0 6px rgba(181,168,255,0.14), 0 10px 40px -8px var(--glow-strong, rgba(181,168,255,0.55)); }
+  100% { box-shadow: var(--edge), var(--sh-accent), var(--sh-2); }
+}
+.request--leaving {
+  animation: request-out 200ms var(--ease-out) both;
+  pointer-events: none;
+}
+@keyframes request-out {
+  to { opacity: 0; transform: translate3d(0, -8px, 0) scale(0.97); margin-bottom: -1rem; }
+}
+.request__proposal {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: var(--s-3); margin-bottom: var(--s-4);
+  border-radius: var(--r-sm);
+  background: rgba(181,168,255,0.10);
+  border: 1px solid var(--accent-line);
+}
+
+/* ── Team formed ────────────────────────────────────────────────────────── */
+
+.formed {
+  position: fixed; inset: 0; z-index: 75;
+  display: grid; place-items: center; padding: var(--gutter);
+  background: rgba(0,0,0,0.55);
+  animation: scrim-in var(--dur-fast) var(--ease-out) both;
+  pointer-events: none;
+}
+.formed--leaving { animation: scrim-out 260ms var(--ease-out) both; }
+@keyframes scrim-out { to { opacity: 0; } }
+.formed__card {
+  display: flex; align-items: center; gap: var(--s-4);
+  padding: var(--s-5) var(--s-6);
+  border-radius: var(--r-2xl);
+  background: var(--mat-thick);
+  border: 1px solid var(--accent-line);
+  backdrop-filter: blur(30px) saturate(180%);
+  -webkit-backdrop-filter: blur(30px) saturate(180%);
+  box-shadow: var(--edge), var(--sh-accent), var(--sh-4);
+  animation: formed-in var(--dur-sheet) var(--ease-sheet) both;
+}
+@keyframes formed-in {
+  from { opacity: 0; transform: scale(0.9) translate3d(0, 12px, 0); }
+}
+.formed__tick {
+  width: 2.75rem; height: 2.75rem; flex-shrink: 0;
+  border-radius: var(--r-full);
+  background: var(--accent); color: var(--accent-ink);
+  display: grid; place-items: center;
+  box-shadow: var(--sh-accent);
+}
+.formed__tick svg { width: 1.5rem; height: 1.5rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .request, .request--arriving, .request--leaving,
+  .formed, .formed__card { animation: fade-only 160ms ease both !important; }
+}
+
+/* The request card is the first thing on the page, full width on desktop. */
+.home__hero { margin-bottom: var(--s-6); }
+@media (min-width: 64rem) {
+  .home__hero { grid-column: 1 / -1; }
+}
+
+/* Destructive, but quiet — a way out, not something to reach for. */
+.leave-team { color: rgba(255, 107, 107, 0.72); font-weight: 500; }
+.leave-team:hover:not(:disabled) { color: var(--danger); }

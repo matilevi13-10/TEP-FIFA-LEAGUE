@@ -32,6 +32,12 @@ interface LeagueValue {
   /** Results we submitted that the other team has not approved yet. */
   awaitingOthers: Match[]
   potCents: number
+  /**
+   * Mirrors season_has_started() in schema.sql: the admin opened it, the
+   * playoffs began, or a result has actually been confirmed. Leaving a team is
+   * only possible while this is false.
+   */
+  seasonStarted: boolean
   refresh: () => Promise<void>
 }
 
@@ -197,6 +203,10 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
         ? matches.filter((m) => m.status === 'pending' && m.submitted_by === myTeamId)
         : [],
       potCents: activeTeams.length * (settings?.buy_in_cents ?? 0),
+      seasonStarted:
+        Boolean(settings?.season_started_at) ||
+        (settings?.phase ?? 'league') !== 'league' ||
+        matches.some((m) => m.status === 'confirmed'),
       refresh,
     }
   }, [loading, teams, players, matches, messages, requests, settings, player, refresh])

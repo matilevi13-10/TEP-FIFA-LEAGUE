@@ -106,6 +106,15 @@ at any time, and requests auto-expire once either side joins a team.
 Either teammate can rename their team at any point, from their team view. Names
 stay unique, and a rename shows up everywhere at once.
 
+**Before the season starts**, either teammate can also leave. Leaving dissolves
+the team outright rather than stranding somebody in a team of one: both players
+return to the pool, the name is freed, and old requests stay expired so everyone
+starts fresh. The option disappears the moment the season starts.
+
+"Started" means the admin opened it (Admin → Season state), the playoffs began,
+or any result has been confirmed — that last one matters so an admin who forgets
+to press the button cannot leave a played team dissolvable.
+
 The admin can pair two unteamed players directly, or dissolve a team, as a
 fallback.
 

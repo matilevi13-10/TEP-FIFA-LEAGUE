@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLeague } from '../lib/league'
-import { renameTeam } from '../lib/actions'
+import { leaveTeam, renameTeam } from '../lib/actions'
+import { ConfirmButton } from './ConfirmButton'
 import { useToast } from './Toast'
 import { haptic } from '../lib/format'
 import { readableError } from '../lib/supabase'
@@ -39,17 +40,48 @@ export function TeamNameEditor({ team }: { team: Team }) {
     }
   }
 
+  const leave = async () => {
+    setBusy(true)
+    try {
+      await leaveTeam()
+      haptic([20, 40, 20])
+      toast(`${team.name} dissolved. You're both back in the pool.`, 'good')
+      await league.refresh()
+    } catch (cause) {
+      toast(readableError(cause), 'bad')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   if (!editing) {
     return (
-      <div className="spread" style={{ marginBottom: 'var(--s-2)' }}>
-        <div className="eyebrow" style={{ margin: 0 }}>{team.name}</div>
-        <button
-          className="btn btn--quiet btn--sm"
-          style={{ padding: 0, minHeight: '1.75rem' }}
-          onClick={() => { haptic(); setEditing(true) }}
-        >
-          Rename
-        </button>
+      <div style={{ marginBottom: 'var(--s-2)' }}>
+        <div className="spread">
+          <div className="eyebrow" style={{ margin: 0 }}>{team.name}</div>
+          <button
+            className="btn btn--quiet btn--sm"
+            style={{ padding: 0, minHeight: '1.75rem' }}
+            onClick={() => { haptic(); setEditing(true) }}
+          >
+            Rename
+          </button>
+        </div>
+
+        {/* Only while the season has not started. Once it has, team changes are
+            the admin's call, so the option disappears rather than erroring. */}
+        {!league.seasonStarted && (
+          <div style={{ marginTop: 'var(--s-2)' }}>
+            <ConfirmButton
+              className="btn btn--plain btn--sm leave-team"
+              style={{ padding: 0, minHeight: '1.75rem' }}
+              disabled={busy}
+              label="Leave team"
+              confirmLabel={`This dissolves ${team.name} and returns both of you to the player pool — tap again`}
+              onConfirm={leave}
+            />
+          </div>
+        )}
       </div>
     )
   }

@@ -66,18 +66,27 @@ select play('Los Galácticos','Tiki Taka',3,2);
 select play('Total Football','Park The Bus',2,0);
 
 do $$ declare n int; begin
-  select count(*) into n from messages where kind = 'result';
-  if n <> 12 then raise exception 'TEST FAILED: expected 12 result messages, got %', n; end if;
+  -- Count the twelve games this suite just played, not every result that any
+  -- earlier suite may have left behind in the shared database.
+  select count(*) into n from messages m
+    join matches mt on mt.id = m.match_id
+   where m.kind = 'result' and mt.status = 'confirmed';
+  if n < 12 then raise exception 'TEST FAILED: expected at least 12 result messages, got %', n; end if;
   raise notice 'ok: every confirmed result posted to chat (% messages)', n;
 
-  if (select body from messages where kind='result' order by created_at limit 1)
-     <> 'Los Galácticos 4–1 Route One' then
-    raise exception 'TEST FAILED: result line reads "%"',
-      (select body from messages where kind='result' order by created_at limit 1);
+  -- Scoped to the match it describes, so an earlier suite's game cannot be
+  -- mistaken for this one.
+  if not exists (
+    select 1 from messages m join matches mt on mt.id = m.match_id
+     where m.kind = 'result' and mt.score_a = 4 and mt.score_b = 1
+       and m.body = 'Los Galácticos 4–1 Route One'
+  ) then
+    raise exception 'TEST FAILED: the 4-1 result line is missing or misworded';
   end if;
   raise notice 'ok: result line reads correctly';
 
-  if (select team_name from messages where kind='result' order by created_at limit 1) <> 'Los Galácticos' then
+  if (select m.team_name from messages m join matches mt on mt.id = m.match_id
+       where m.kind='result' and mt.score_a = 4 and mt.score_b = 1) <> 'Los Galácticos' then
     raise exception 'TEST FAILED: winner not recorded on the result message';
   end if;
   raise notice 'ok: winner recorded for win/loss framing';

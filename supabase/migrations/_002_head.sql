@@ -90,6 +90,25 @@ alter table public.players add constraint players_team_id_fkey
 alter table public.league_settings
   add column if not exists admin_email text not null default 'matilevi13@gmail.com';
 
+-- Null means the season has not opened yet, which is what lets either teammate
+-- dissolve their own team. Existing leagues that have already played are
+-- back-filled below so nobody can suddenly walk out of a team mid-season.
+alter table public.league_settings
+  add column if not exists season_started_at timestamptz;
+
+do $$
+begin
+  if exists (select 1 from public.matches where status = 'confirmed')
+     and (select season_started_at is null from public.league_settings where id = 1) then
+    update public.league_settings
+       set season_started_at = coalesce(
+             (select min(confirmed_at) from public.matches where status = 'confirmed'),
+             now())
+     where id = 1;
+    raise notice 'Results already exist — season marked as started, so teams are locked.';
+  end if;
+end $$;
+
 create table if not exists public.messages (
   id          uuid primary key default gen_random_uuid(),
   kind        text not null default 'chat' check (kind in ('chat','result','taunt')),

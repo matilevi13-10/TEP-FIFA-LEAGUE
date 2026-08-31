@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useAuth } from '../lib/auth'
 import { slotsUsed, useLeague } from '../lib/league'
 import { cancelSubmission, confirmMatch, disputeMatch } from '../lib/actions'
+import { IncomingRequests } from '../components/IncomingRequests'
+import { TeamFormed } from '../components/TeamFormed'
 import { TeamFormation } from '../components/TeamFormation'
 import { TeamNameEditor } from '../components/TeamNameEditor'
 import { useToast } from '../components/Toast'
@@ -15,6 +17,7 @@ export function Home() {
   const league = useLeague()
   const toast = useToast()
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [formed, setFormed] = useState<string | null>(null)
 
   if (!player) return null
   const { settings, standings, matches, pendingForMe, awaitingOthers, potCents, activeTeams, myTeam } = league
@@ -43,6 +46,14 @@ export function Home() {
 
   return (
     <div className="page home">
+      {/* Spans both columns so it is the first thing on the page at any width. */}
+      {!myTeam && (
+        <div className="home__hero">
+          <IncomingRequests onAccepted={(teamName) => setFormed(teamName)} />
+        </div>
+      )}
+      {formed && <TeamFormed teamName={formed} onDone={() => setFormed(null)} />}
+
       <div className="home__col">
         {champion && (
           <div className="card card--accent section row">
