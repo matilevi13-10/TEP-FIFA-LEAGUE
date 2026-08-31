@@ -170,6 +170,12 @@ the two cannot drift. After editing the schema, run
   Admin → Players.
 - **Passwords** are Supabase Auth's business. There is no password reset inside
   the app — use the Supabase dashboard if someone is locked out.
-- **PP Neue Montreal** is a commercial typeface from Pangram Pangram, bundled here
-  in `src/fonts/`. Make sure your licence covers web use before this goes anywhere
-  public.
+- **Typography is the system font** — SF Pro on Apple hardware, the platform's own
+  face elsewhere. It ships optical sizing and tracking tables that a webfont
+  can't match, and it costs nothing to download. The PP Neue Montreal files that
+  used to be in `src/fonts/` were removed; recover them with
+  `git checkout <earlier-commit> -- src/fonts` if you want them back.
+- **The design system lives at the top of `src/index.css`** — one spacing scale,
+  one type scale, one radius scale, one shadow scale, and spring curves sampled
+  from Apple's damping/response model. A component that needs a value not on a
+  scale means the scale is wrong; fix it there, not locally.

@@ -14,8 +14,8 @@ export function Bracket() {
     return (
       <div className="page">
         <div className="section">
-          <h1 style={{ fontSize: 26, fontWeight: 500, letterSpacing: '-0.02em', margin: '0 0 16px' }}>Bracket</h1>
-          <div className="card center muted" style={{ padding: 30 }}>
+          <h1 className="t-title" style={{ margin: '0 0 var(--s-4)' }}>Bracket</h1>
+          <div className="card center muted t-subhead" style={{ padding: 'var(--s-8) var(--s-4)' }}>
             The playoffs haven't started yet.
           </div>
         </div>
@@ -29,10 +29,10 @@ export function Bracket() {
   return (
     <div className="page">
       <section className="section">
-        <div className="spread" style={{ marginBottom: 14 }}>
+        <div className="spread" style={{ marginBottom: 'var(--s-4)' }}>
           <div>
-            <h1 style={{ fontSize: 26, fontWeight: 500, letterSpacing: '-0.02em', margin: 0 }}>Bracket</h1>
-            <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+            <h1 className="t-title" style={{ margin: 0 }}>Bracket</h1>
+            <div className="t-foot dim">
               {settings?.playoff_size}-team single elimination · winner takes {money(potCents)}
             </div>
           </div>
@@ -40,11 +40,13 @@ export function Bracket() {
         </div>
 
         {champion && (
-          <div className="card card--accent" style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 16 }}>
-            <span style={{ width: 30, height: 30, color: 'var(--accent)', flexShrink: 0 }}><IconTrophy /></span>
+          <div className="card card--accent row" style={{ marginBottom: 'var(--s-4)' }}>
+            <span style={{ width: '1.875rem', height: '1.875rem', color: 'var(--accent)', flexShrink: 0 }}>
+              <IconTrophy />
+            </span>
             <div>
-              <div className="eyebrow" style={{ margin: 0 }}>Champions</div>
-              <div style={{ fontSize: 20, fontWeight: 500 }}>{champion.name}</div>
+              <div className="eyebrow eyebrow--accent" style={{ margin: 0 }}>Champions</div>
+              <div className="t-title-2">{champion.name}</div>
             </div>
           </div>
         )}
@@ -79,7 +81,7 @@ export function Bracket() {
           })}
         </div>
 
-        <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '12px 2px 0' }}>
+        <p className="t-caption dim" style={{ margin: 'var(--s-3) var(--s-1) 0' }}>
           Swipe across to follow the bracket. Seeds come from the final league table.
         </p>
       </section>
@@ -138,7 +140,7 @@ function Side({
       <span className="matchup__seed">{seed ?? ''}</span>
       <span
         className="matchup__team"
-        style={highlight ? { fontWeight: 500, textDecoration: 'underline', textUnderlineOffset: 3, textDecorationColor: 'var(--line-hi)' } : undefined}
+        style={highlight ? { fontWeight: 600 } : undefined}
       >
         {name ?? <span className="dim">—</span>}
       </span>

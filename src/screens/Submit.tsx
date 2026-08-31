@@ -49,8 +49,8 @@ export function Submit() {
     return (
       <div className="page">
         <Header title="Submit Result" sub="You need a team first" />
-        <div className="card center" style={{ padding: 30 }}>
-          <p className="muted" style={{ margin: '0 0 14px', fontSize: 14 }}>
+        <div className="card center" style={{ padding: 'var(--s-8) var(--s-4)' }}>
+          <p className="muted t-subhead" style={{ margin: '0 0 var(--s-4)' }}>
             Results are logged by teams. Pair up with someone from the player pool first.
           </p>
           <Link to="/teams" className="btn btn--primary">Find a teammate</Link>
@@ -97,8 +97,8 @@ export function Submit() {
     return (
       <div className="page">
         <Header title="Submit Result" sub="Playoffs" />
-        <div className="card center" style={{ padding: 30 }}>
-          <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+        <div className="card center" style={{ padding: 'var(--s-8) var(--s-4)' }}>
+          <p className="muted t-subhead" style={{ margin: 0 }}>
             {settings?.phase === 'complete'
               ? 'The season is finished.'
               : 'No open playoff game for you right now — either you are out, or your next opponent is still being decided.'}
@@ -119,15 +119,15 @@ export function Submit() {
         />
 
         {remaining === 0 ? (
-          <div className="card center" style={{ padding: 30 }}>
-            <p className="muted" style={{ margin: 0, fontSize: 14 }}>
+          <div className="card center" style={{ padding: 'var(--s-8) var(--s-4)' }}>
+            <p className="muted t-subhead" style={{ margin: 0 }}>
               You have played all {settings?.games_per_team} of your games. Sit tight for the playoffs.
             </p>
           </div>
         ) : (
           <>
             <div className="eyebrow">Who did you play?</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 10 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--s-3)' }}>
               {opponents.map((other) => {
                 const theirRemaining = (settings?.games_per_team ?? 0) - slotsUsed(matches, other.id)
                 const full = theirRemaining <= 0
@@ -135,18 +135,13 @@ export function Submit() {
                 return (
                   <button
                     key={other.id}
-                    className="card"
+                    className="card card--tap"
                     disabled={full}
                     onClick={() => { haptic(); setOpponent(other) }}
-                    style={{
-                      textAlign: 'left', padding: '15px 14px', minHeight: 78,
-                      opacity: full ? 0.4 : 1, cursor: full ? 'not-allowed' : 'pointer',
-                    }}
+                    style={{ minHeight: '4.75rem', opacity: full ? 0.4 : 1, cursor: full ? 'not-allowed' : 'pointer' }}
                   >
-                    <div style={{ fontSize: 15, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {other.name}
-                    </div>
-                    <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 2 }}>
+                    <div className="t-headline truncate">{other.name}</div>
+                    <div className="t-caption dim" style={{ marginTop: '0.125rem' }}>
                       {full ? 'Games all played' : names}
                     </div>
                   </button>
@@ -154,7 +149,7 @@ export function Submit() {
               })}
             </div>
             {opponents.length === 0 && (
-              <div className="card center muted" style={{ padding: 30 }}>
+              <div className="card center muted t-subhead" style={{ padding: 'var(--s-8) var(--s-4)' }}>
                 No other teams in the league yet.
               </div>
             )}
@@ -181,19 +176,19 @@ export function Submit() {
           <button
             className="btn btn--quiet btn--sm"
             onClick={reset}
-            style={{ padding: 0, marginBottom: 12, color: 'var(--text-3)' }}
+            style={{ padding: 0, marginBottom: 'var(--s-3)' }}
           >
-            <span style={{ width: 14, height: 14, display: 'block', transform: 'rotate(180deg)' }}>
+            <span className="btn__glyph" style={{ width: '0.875rem', height: '0.875rem', transform: 'rotate(180deg)' }}>
               <IconChevron />
             </span>
             Change opponent
           </button>
         )}
 
-        <div className="row" style={{ alignItems: 'flex-start', gap: 14 }}>
+        <div className="row" style={{ alignItems: 'flex-start', gap: 'var(--s-4)' }}>
           <ScoreStepper label={myTeam.name} sub="You" value={mine} onChange={setMine} accent />
           {/* 40px label block + 12px gap + half of the 96px input = the score row's axis */}
-          <div style={{ paddingTop: 90, fontSize: 20, color: 'var(--text-3)', fontWeight: 500 }}>–</div>
+          <div className="dim" style={{ paddingTop: 90, fontSize: '1.25rem', fontWeight: 500 }}>–</div>
           <ScoreStepper
             label={activeOpponent?.name ?? 'Opponent'}
             sub="Them"
@@ -202,17 +197,17 @@ export function Submit() {
           />
         </div>
 
-        <div className="center" style={{ minHeight: 40, marginTop: 18, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div className="center" style={{ minHeight: '2.5rem', marginTop: 'var(--s-5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {level ? (
-            <span style={{ fontSize: 13, color: 'var(--danger)' }}>
+            <span className="t-foot" style={{ color: 'var(--danger)' }} role="alert">
               Games can't end level — play it out until somebody wins.
             </span>
           ) : lost ? (
-            <span style={{ fontSize: 13, color: 'var(--danger)' }}>
+            <span className="t-foot" style={{ color: 'var(--danger)' }} role="alert">
               The winning team submits — ask {activeOpponent?.name ?? 'them'} to send this one.
             </span>
           ) : (
-            <span style={{ fontSize: 13, color: 'var(--text-2)' }}>
+            <span className="t-foot muted">
               You win {mine}–{theirs}. {activeOpponent?.name ?? 'They'} confirms it.
             </span>
           )}
@@ -222,13 +217,13 @@ export function Submit() {
           className="btn btn--primary btn--block"
           disabled={busy || blocked}
           onClick={send}
-          style={{ marginTop: 6 }}
+          style={{ marginTop: 'var(--s-2)' }}
         >
           {busy ? 'Sending…' : 'Submit result'}
         </button>
       </div>
 
-      <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '12px 2px 0', textAlign: 'center' }}>
+      <p className="t-caption dim center" style={{ margin: 'var(--s-3) var(--s-1) 0' }}>
         Nothing moves the table until {activeOpponent?.name ?? 'your opponent'} confirms.
       </p>
     </div>
@@ -237,9 +232,9 @@ export function Submit() {
 
 function Header({ title, sub }: { title: string; sub: string }) {
   return (
-    <div className="section" style={{ marginBottom: 16 }}>
-      <h1 style={{ fontSize: 26, fontWeight: 500, letterSpacing: '-0.02em', margin: 0 }}>{title}</h1>
-      <div style={{ fontSize: 13, color: 'var(--text-3)' }}>{sub}</div>
+    <div className="section" style={{ marginBottom: 'var(--s-5)' }}>
+      <h1 className="t-title" style={{ margin: 0 }}>{title}</h1>
+      <div className="t-foot dim">{sub}</div>
     </div>
   )
 }

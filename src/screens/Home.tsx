@@ -44,19 +44,21 @@ export function Home() {
     <div className="page home">
       <div className="home__col">
         {champion && (
-          <div className="card card--accent section" style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-            <span style={{ width: 30, height: 30, color: 'var(--accent)', flexShrink: 0 }}><IconTrophy /></span>
+          <div className="card card--accent section row">
+            <span style={{ width: '1.875rem', height: '1.875rem', color: 'var(--accent)', flexShrink: 0 }}>
+              <IconTrophy />
+            </span>
             <div>
-              <div className="eyebrow" style={{ margin: 0 }}>Champions</div>
-              <div style={{ fontSize: 20, fontWeight: 500 }}>{champion.name}</div>
-              <div style={{ fontSize: 13, color: 'var(--text-2)' }}>Takes the {money(potCents)} pot.</div>
+              <div className="eyebrow eyebrow--accent" style={{ margin: 0 }}>Champions</div>
+              <div className="t-title-2">{champion.name}</div>
+              <div className="t-foot muted">Takes the {money(potCents)} pot.</div>
             </div>
           </div>
         )}
 
         {pendingForMe.length > 0 && (
           <section className="section">
-            <div className="eyebrow" style={{ color: 'var(--accent)' }}>
+            <div className="eyebrow eyebrow--accent">
               {pendingForMe.length === 1 ? 'Confirm this result' : `${pendingForMe.length} results to confirm`}
             </div>
             <div className="stack">
@@ -74,18 +76,15 @@ export function Home() {
         )}
 
         <section className="section">
-          <div className="card card--accent" style={{ textAlign: 'center', padding: '26px 18px' }}>
+          <div className="card card--accent center" style={{ padding: 'var(--s-6) var(--s-4)' }}>
             <div className="eyebrow" style={{ margin: 0 }}>Grand prize</div>
             <div
-              style={{
-                fontSize: 'clamp(46px, 15vw, 64px)', fontWeight: 700, lineHeight: 1.05,
-                letterSpacing: '-0.035em', color: 'var(--accent)',
-                textShadow: '0 0 46px rgba(181,168,255,0.42)', margin: '4px 0 6px',
-              }}
+              className="t-display"
+              style={{ color: 'var(--accent)', textShadow: '0 0 46px rgba(181,168,255,0.42)', margin: 'var(--s-1) 0' }}
             >
               {money(potCents)}
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text-2)' }}>
+            <div className="t-foot muted">
               {activeTeams.length} {activeTeams.length === 1 ? 'team' : 'teams'} ×{' '}
               {money(settings?.buy_in_cents ?? 0)} buy-in
             </div>
@@ -96,28 +95,29 @@ export function Home() {
           <section className="section">
             <div className="eyebrow">{myTeam.name}</div>
             <div className="card">
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--s-3)' }}>
                 <Stat label="Rank" value={me ? ordinal(me.rank) : '—'} accent />
                 <Stat label="Record" value={me ? `${me.won}-${me.lost}` : '0-0'} />
                 <Stat label="Points" value={me ? String(me.points) : '0'} />
               </div>
 
-              <div className="divider" style={{ margin: '16px 0 14px' }} />
+              <div className="divider" style={{ margin: 'var(--s-4) 0 var(--s-3)' }} />
 
-              <div className="spread" style={{ fontSize: 13 }}>
+              <div className="spread t-foot">
                 <span className="muted">Games played</span>
-                <span style={{ fontWeight: 500 }}>{me?.played ?? 0} <span className="dim">of {total}</span></span>
+                <span style={{ fontWeight: 600 }}>{me?.played ?? 0} <span className="dim">of {total}</span></span>
               </div>
-              <div style={{ height: 6, borderRadius: 3, background: 'rgba(255,255,255,0.07)', marginTop: 10, overflow: 'hidden' }}>
+              <div style={{ height: '0.375rem', borderRadius: 'var(--r-full)', background: 'var(--fill-2)', marginTop: 'var(--s-2)', overflow: 'hidden' }}>
                 <div
                   style={{
                     height: '100%', width: `${total ? Math.min(100, ((me?.played ?? 0) / total) * 100) : 0}%`,
-                    background: 'var(--accent)', boxShadow: '0 0 14px var(--glow)',
-                    borderRadius: 3, transition: 'width 420ms var(--ease)',
+                    background: 'var(--accent)', boxShadow: 'var(--sh-accent)',
+                    borderRadius: 'var(--r-full)',
+                    transition: 'width var(--dur-standard) var(--ease-standard)',
                   }}
                 />
               </div>
-              <div className="spread" style={{ fontSize: 12, marginTop: 9, color: 'var(--text-3)' }}>
+              <div className="spread t-caption dim" style={{ marginTop: 'var(--s-2)' }}>
                 <span>
                   {me ? `${me.goals_for}–${me.goals_against} goals` : 'No games yet'}
                   {me && me.goal_difference !== 0 && (
@@ -146,18 +146,18 @@ export function Home() {
                 const other = league.teamById(match.team_a === myTeam?.id ? match.team_b : match.team_a)
                 const mineFirst = match.team_a === myTeam?.id
                 return (
-                  <div key={match.id} className="card spread" style={{ padding: '14px 16px' }}>
+                  <div key={match.id} className="card spread">
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 15 }}>
+                      <div className="t-subhead">
                         vs {other?.name ?? 'Unknown'}{' '}
-                        <span className="muted">
+                        <span className="muted num">
                           {mineFirst ? match.score_a : match.score_b}–{mineFirst ? match.score_b : match.score_a}
                         </span>
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--text-3)' }}>Sent {timeAgo(match.created_at)}</div>
+                      <div className="t-caption dim">Sent {timeAgo(match.created_at)}</div>
                     </div>
                     <button
-                      className="btn btn--quiet btn--sm"
+                      className="btn btn--plain btn--sm"
                       disabled={busyId === match.id}
                       onClick={() => act(match.id, () => cancelSubmission(match.id), 'Submission taken back.')}
                     >
@@ -174,12 +174,10 @@ export function Home() {
       {/* The table is the point of the page. */}
       <div className="home__col">
         <section className="section">
-          <div className="spread" style={{ marginBottom: 12 }}>
+          <div className="spread" style={{ marginBottom: 'var(--s-3)' }}>
             <div>
-              <h1 style={{ fontSize: 22, fontWeight: 500, letterSpacing: '-0.02em', margin: 0 }}>
-                League Table
-              </h1>
-              <div style={{ fontSize: 12.5, color: 'var(--text-3)' }}>
+              <h1 className="t-title-2" style={{ margin: 0 }}>League Table</h1>
+              <div className="t-foot dim">
                 {settings?.phase === 'league' ? 'Win 3 · Loss 0' : 'League phase closed'}
               </div>
             </div>
@@ -187,11 +185,11 @@ export function Home() {
           </div>
 
           {standings.length === 0 ? (
-            <div className="card center muted" style={{ padding: 30, fontSize: 14 }}>
+            <div className="card center muted t-subhead" style={{ padding: 'var(--s-8) var(--s-4)' }}>
               No teams yet. The table fills in as people pair up.
             </div>
           ) : (
-            <div className="card card--flat">
+            <div className="card card--flat tbl">
               <div className="tbl__head">
                 <span style={{ textAlign: 'center' }}>#</span>
                 <span>Team</span>
@@ -210,8 +208,7 @@ export function Home() {
                 return (
                   <div
                     key={row.team_id}
-                    className={`tbl__row${isMe ? ' tbl__row--me' : ''}${row.rank === 1 ? ' tbl__row--top' : ''}`}
-                    style={atCutline ? { borderBottom: '1px dashed rgba(181,168,255,0.42)' } : undefined}
+                    className={`tbl__row${isMe ? ' tbl__row--me' : ''}${row.rank === 1 ? ' tbl__row--top' : ''}${atCutline ? ' tbl__row--cut' : ''}`}
                   >
                     <span className="tbl__rank">{row.rank}</span>
                     <span style={{ minWidth: 0 }}>
@@ -237,11 +234,11 @@ export function Home() {
           )}
 
           {showCutline && (
-            <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '10px 2px 0' }}>
-              The dashed line is the playoff cut — top {qualifying} qualify.
+            <p className="t-caption dim" style={{ margin: 'var(--s-2) var(--s-1) 0' }}>
+              The line is the playoff cut — top {qualifying} qualify.
             </p>
           )}
-          <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '8px 2px 0' }}>
+          <p className="t-caption dim" style={{ margin: 'var(--s-2) var(--s-1) 0' }}>
             Level on points? Goal difference decides, then goals scored.
           </p>
         </section>
@@ -253,10 +250,8 @@ export function Home() {
 function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
   return (
     <div>
-      <div className="eyebrow" style={{ margin: '0 0 4px' }}>{label}</div>
-      <div style={{ fontSize: 26, fontWeight: 700, letterSpacing: '-0.02em', lineHeight: 1.1, color: accent ? 'var(--accent)' : 'var(--text)' }}>
-        {value}
-      </div>
+      <div className="eyebrow" style={{ margin: '0 0 var(--s-1)' }}>{label}</div>
+      <div className="t-title" style={{ color: accent ? 'var(--accent)' : 'var(--text)' }}>{value}</div>
     </div>
   )
 }
@@ -276,28 +271,28 @@ function PendingCard({
 
   return (
     <div className="card card--accent">
-      <div className="spread" style={{ marginBottom: 14 }}>
+      <div className="spread" style={{ marginBottom: 'var(--s-4)' }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 500 }}>{other?.name ?? 'Unknown'} says:</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+          <div className="t-headline">{other?.name ?? 'Unknown'} says:</div>
+          <div className="t-caption dim">
             {match.phase === 'playoff' ? 'Playoff game' : 'League game'} · {timeAgo(match.created_at)}
           </div>
         </div>
         <span className="pill pill--accent">{won ? 'You won' : 'You lost'}</span>
       </div>
 
-      <div className="center" style={{ fontSize: 40, fontWeight: 700, letterSpacing: '-0.03em', marginBottom: 4 }}>
-        {myScore} <span className="dim" style={{ fontSize: 26 }}>–</span> {theirScore}
+      <div className="center num" style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.1 }}>
+        {myScore} <span className="dim" style={{ fontSize: '1.625rem' }}>–</span> {theirScore}
       </div>
-      <div className="center" style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 16 }}>
+      <div className="center t-caption dim" style={{ marginBottom: 'var(--s-4)' }}>
         You · {other?.name ?? 'Them'}
       </div>
 
       <button className="btn btn--primary btn--block" disabled={busy} onClick={onConfirm}>
-        <span style={{ width: 17, height: 17, display: 'block' }}><IconCheck /></span>
+        <span className="btn__glyph"><IconCheck /></span>
         {busy ? 'Confirming…' : "That's right — confirm"}
       </button>
-      <button className="btn btn--quiet btn--block" disabled={busy} onClick={onDispute} style={{ marginTop: 4 }}>
+      <button className="btn btn--plain btn--block" disabled={busy} onClick={onDispute} style={{ marginTop: 'var(--s-1)' }}>
         Wrong score — flag it
       </button>
     </div>

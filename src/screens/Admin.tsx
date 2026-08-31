@@ -22,7 +22,7 @@ export function Admin() {
   if (!player?.is_admin) {
     return (
       <div className="page">
-        <div className="section card center muted" style={{ padding: 30 }}>Admins only.</div>
+        <div className="section card center muted" style={{ padding: 'var(--s-8)' }}>Admins only.</div>
       </div>
     )
   }
@@ -42,9 +42,9 @@ export function Admin() {
 
   return (
     <div className="page">
-      <div className="section" style={{ marginBottom: 18 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 500, letterSpacing: '-0.02em', margin: 0 }}>Admin</h1>
-        <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+      <div className="section" style={{ marginBottom: 'var(--s-5)' }}>
+        <h1 className="t-title" style={{ margin: 0 }}>Admin</h1>
+        <div className="t-foot dim">
           {league.settings?.season_name} · {league.activeTeams.length} teams ·{' '}
           {league.pool.length} in the pool · pot {money(league.potCents)}
         </div>
@@ -70,7 +70,7 @@ function NeedsAttention({ run }: { run: Run }) {
 
   return (
     <section className="section">
-      <div className="eyebrow" style={{ color: flagged.length ? 'var(--accent)' : undefined }}>
+      <div className={`eyebrow${flagged.length ? ' eyebrow--accent' : ''}`}>
         {flagged.length > 0 ? `${flagged.length} disputed` : `${waiting.length} awaiting confirmation`}
       </div>
       <div className="stack">
@@ -96,10 +96,10 @@ function MatchRow({ match, run }: { match: Match; run: Run }) {
 
   return (
     <div className="card">
-      <div className="spread" style={{ marginBottom: 12 }}>
+      <div className="spread" style={{ marginBottom: 'var(--s-3)' }}>
         <div style={{ minWidth: 0 }}>
-          <div style={{ fontSize: 15, fontWeight: 500 }}>{teamA?.name ?? '—'} vs {teamB?.name ?? '—'}</div>
-          <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+          <div className="t-headline">{teamA?.name ?? '—'} vs {teamB?.name ?? '—'}</div>
+          <div className="t-caption dim">
             {match.phase === 'playoff' ? 'Playoff' : 'League'} · sent by {submitter?.name ?? 'unknown'} ·{' '}
             {timeAgo(match.created_at)}
           </div>
@@ -109,17 +109,17 @@ function MatchRow({ match, run }: { match: Match; run: Run }) {
         </span>
       </div>
 
-      <div className="row" style={{ gap: 8, marginBottom: 12 }}>
-        <input className="input" inputMode="numeric" aria-label={`${teamA?.name} score`} value={String(scoreA)}
+      <div className="row" style={{ gap: 'var(--s-2)', marginBottom: 'var(--s-3)' }}>
+        <input className="input num" inputMode="numeric" aria-label={`${teamA?.name} score`} value={String(scoreA)}
           onChange={(e) => setScoreA(Math.min(99, Number(e.target.value.replace(/\D/g, '') || 0)))}
-          style={{ textAlign: 'center', fontWeight: 700, fontSize: 18 }} />
+          style={{ textAlign: 'center', fontWeight: 700 }} />
         <span className="dim">–</span>
-        <input className="input" inputMode="numeric" aria-label={`${teamB?.name} score`} value={String(scoreB)}
+        <input className="input num" inputMode="numeric" aria-label={`${teamB?.name} score`} value={String(scoreB)}
           onChange={(e) => setScoreB(Math.min(99, Number(e.target.value.replace(/\D/g, '') || 0)))}
-          style={{ textAlign: 'center', fontWeight: 700, fontSize: 18 }} />
+          style={{ textAlign: 'center', fontWeight: 700 }} />
       </div>
 
-      <div className="row" style={{ gap: 8 }}>
+      <div className="row" style={{ gap: 'var(--s-2)' }}>
         <button className="btn btn--primary btn--sm" disabled={busy} style={{ flex: 1 }}
           onClick={() => act(() => adminResolveMatch(match.id, scoreA, scoreB, 'Settled by admin'), 'Result settled.')}>
           Settle at {scoreA}–{scoreB}
@@ -170,7 +170,7 @@ function SeasonSettings({ run }: { run: Run }) {
           <label className="field__label" htmlFor="season-name">Season name</label>
           <input id="season-name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
         </div>
-        <div className="row" style={{ gap: 10, alignItems: 'flex-end' }}>
+        <div className="row" style={{ gap: 'var(--s-3)', alignItems: 'flex-end' }}>
           <div className="field" style={{ flex: 1 }}>
             <label className="field__label" htmlFor="games">Games per team</label>
             <input id="games" className="input" inputMode="numeric" value={games}
@@ -186,7 +186,7 @@ function SeasonSettings({ run }: { run: Run }) {
           <label className="field__label" htmlFor="admin-email">Admin account (email)</label>
           <input id="admin-email" className="input" type="email" autoCapitalize="none"
             value={adminEmail} onChange={(e) => setAdminEmail(e.target.value)} />
-          <p className="dim" style={{ margin: '2px 0 0', fontSize: 12 }}>
+          <p className="field__hint">
             Whoever signs in with this address gets these controls. Changing it hands them over.
           </p>
         </div>
@@ -218,7 +218,7 @@ function Playoffs({ run }: { run: Run }) {
       <div className="card stack">
         <div className="field">
           <span className="field__label">Teams that qualify</span>
-          <div className="row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 'var(--s-2)' }}>
             {[4, 8, 16].map((option) => (
               <button key={option} className={`btn ${size === option ? 'btn--primary' : 'btn--ghost'}`}
                 disabled={started} onClick={() => { haptic(); setSize(option) }}
@@ -231,7 +231,7 @@ function Playoffs({ run }: { run: Run }) {
 
         {started ? (
           <>
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            <p className="muted t-foot" style={{ margin: 0 }}>
               {settings?.phase === 'complete'
                 ? 'The season is finished — a champion has been crowned.'
                 : 'The bracket is live and the league table is locked.'}
@@ -243,7 +243,7 @@ function Playoffs({ run }: { run: Run }) {
           </>
         ) : (
           <>
-            <p className="muted" style={{ margin: 0, fontSize: 13 }}>
+            <p className="muted t-foot" style={{ margin: 0 }}>
               Starting the playoffs locks the league — no more league results after that. The top {size} seed
               into the bracket.
               {unsettled > 0 && (
@@ -253,7 +253,7 @@ function Playoffs({ run }: { run: Run }) {
               )}
             </p>
             {tooFew && (
-              <p style={{ margin: 0, fontSize: 13, color: 'var(--danger)' }}>
+              <p className="t-foot" style={{ margin: 0, color: 'var(--danger)' }} role="alert">
                 Only {activeTeams.length} active teams — you need {size}.
               </p>
             )}
@@ -287,7 +287,7 @@ function TeamsAdmin({ run }: { run: Run }) {
 
   return (
     <section className="section">
-      <div className="spread" style={{ marginBottom: 10 }}>
+      <div className="spread" style={{ marginBottom: 'var(--s-3)' }}>
         <div className="eyebrow" style={{ margin: '0 0 0 2px' }}>Teams</div>
         <button className="btn btn--quiet btn--sm" style={{ padding: 0 }} onClick={() => setPairing((v) => !v)}>
           {pairing ? 'Cancel' : '+ Pair two players'}
@@ -297,14 +297,14 @@ function TeamsAdmin({ run }: { run: Run }) {
       <div className="stack">
         {pairing && (
           <div className="card card--accent stack">
-            <p className="dim" style={{ margin: 0, fontSize: 12.5 }}>
+            <p className="field__hint" style={{ padding: 0 }}>
               Players normally pair up themselves on the Teams page. Use this when they can't.
             </p>
             <div className="field">
               <label className="field__label" htmlFor="pair-name">Team name</label>
               <input id="pair-name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-            <div className="row" style={{ gap: 10 }}>
+            <div className="row" style={{ gap: 'var(--s-3)' }}>
               <div className="field" style={{ flex: 1 }}>
                 <label className="field__label" htmlFor="pair-a">Player 1</label>
                 <select id="pair-a" className="input" value={a} onChange={(e) => setA(e.target.value)}>
@@ -327,7 +327,7 @@ function TeamsAdmin({ run }: { run: Run }) {
           </div>
         )}
         {league.teams.length === 0 && !pairing && (
-          <div className="card center muted" style={{ padding: 24, fontSize: 14 }}>No teams yet.</div>
+          <div className="card center muted t-subhead" style={{ padding: 'var(--s-6) var(--s-4)' }}>No teams yet.</div>
         )}
         {league.teams.map((team) => <TeamRow key={team.id} team={team} run={run} />)}
       </div>
@@ -354,24 +354,26 @@ function TeamRow({ team, run }: { team: Team; run: Run }) {
     <div className="card" style={{ padding: open ? 18 : '14px 16px' }}>
       <button className="spread" onClick={() => setOpen((v) => !v)} style={{ width: '100%', textAlign: 'left', minHeight: 34 }}>
         <span style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', fontSize: 15, fontWeight: 500 }}>
+          <span className="t-headline" style={{ display: 'block' }}>
             {team.name}
-            {!team.is_active && <span className="pill" style={{ marginLeft: 8, height: 20, fontSize: 10.5 }}>Inactive</span>}
+            {!team.is_active && (
+              <span className="pill" style={{ marginLeft: 'var(--s-2)', height: '1.25rem' }}>Inactive</span>
+            )}
           </span>
-          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3)' }}>
+          <span className="t-caption dim" style={{ display: 'block' }}>
             {roster.join(' & ') || 'No players'} · {team.paid ? 'paid' : 'unpaid'}
           </span>
         </span>
-        <span className="dim" style={{ fontSize: 13, flexShrink: 0 }}>{open ? 'Close' : 'Edit'}</span>
+        <span className="dim t-foot" style={{ flexShrink: 0 }}>{open ? 'Close' : 'Edit'}</span>
       </button>
 
       {open && (
-        <div className="stack" style={{ marginTop: 16 }}>
+        <div className="stack" style={{ marginTop: 'var(--s-4)' }}>
           <div className="field">
             <label className="field__label" htmlFor={`tn-${team.id}`}>Team name</label>
             <input id={`tn-${team.id}`} className="input" value={name} onChange={(e) => setName(e.target.value)} />
           </div>
-          <div className="row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 'var(--s-2)' }}>
             <Toggle label="In the league" on={active} onClick={() => setActive((v) => !v)} />
             <Toggle label="Buy-in paid" on={paid} onClick={() => setPaid((v) => !v)} />
           </div>
@@ -384,7 +386,7 @@ function TeamRow({ team, run }: { team: Team; run: Run }) {
             disabled={busy || league.settings?.phase !== 'league'}
             label="Dissolve team" confirmLabel="Break them up and delete their results?"
             onConfirm={() => act(() => adminDissolveTeam(team.id), `${team.name} dissolved.`)} />
-          <p className="dim" style={{ fontSize: 11.5, margin: 0 }}>
+          <p className="field__hint" style={{ padding: 0 }}>
             Both players go back to the player pool. Their matches are deleted, so this is league-phase only.
           </p>
         </div>
@@ -410,7 +412,7 @@ function PlayersAdmin({ run }: { run: Run }) {
 
   return (
     <section className="section">
-      <div className="spread" style={{ marginBottom: 10 }}>
+      <div className="spread" style={{ marginBottom: 'var(--s-3)' }}>
         <div className="eyebrow" style={{ margin: '0 0 0 2px' }}>Players</div>
         <button className="btn btn--quiet btn--sm" style={{ padding: 0 }} onClick={() => setAdding((v) => !v)}>
           {adding ? 'Cancel' : '+ Add placeholder'}
@@ -424,7 +426,7 @@ function PlayersAdmin({ run }: { run: Run }) {
               <label className="field__label" htmlFor="np-name">Name</label>
               <input id="np-name" className="input" value={name} onChange={(e) => setName(e.target.value)} />
             </div>
-            <p className="dim" style={{ margin: 0, fontSize: 12.5 }}>
+            <p className="field__hint" style={{ padding: 0 }}>
               Creates a name others can put on a team. That person claims it by signing up
               with the same username — there is no password to set here.
             </p>
@@ -457,23 +459,25 @@ function PlayerRow({ player, run }: { player: Player; run: Run }) {
     <div className="card" style={{ padding: open ? 18 : '13px 16px' }}>
       <button className="spread" onClick={() => setOpen((v) => !v)} style={{ width: '100%', textAlign: 'left', minHeight: 32 }}>
         <span style={{ minWidth: 0 }}>
-          <span style={{ display: 'block', fontSize: 15, fontWeight: 500 }}>
+          <span className="t-headline" style={{ display: 'block' }}>
             {player.name}
-            {player.is_admin && <span className="pill pill--accent" style={{ marginLeft: 8, height: 20, fontSize: 10.5 }}>Admin</span>}
+            {player.is_admin && (
+              <span className="pill pill--accent" style={{ marginLeft: 'var(--s-2)', height: '1.25rem' }}>Admin</span>
+            )}
           </span>
-          <span style={{ display: 'block', fontSize: 12, color: 'var(--text-3)' }}>
+          <span className="t-caption dim" style={{ display: 'block' }}>
             {team ? team.name : 'No team'}
             {player.email ? ` · ${player.email}` : ' · not signed up yet'}
           </span>
         </span>
-        <span className="dim" style={{ fontSize: 13, flexShrink: 0 }}>{open ? 'Close' : 'Edit'}</span>
+        <span className="dim t-foot" style={{ flexShrink: 0 }}>{open ? 'Close' : 'Edit'}</span>
       </button>
 
       {open && (
-        <div className="stack" style={{ marginTop: 16 }}>
+        <div className="stack" style={{ marginTop: 'var(--s-4)' }}>
           <div className="field">
             <label className="field__label" htmlFor={`pn-${player.id}`}>Name</label>
-            <div className="row" style={{ gap: 8 }}>
+            <div className="row" style={{ gap: 'var(--s-2)' }}>
               <input id={`pn-${player.id}`} className="input" value={name} onChange={(e) => setName(e.target.value)} />
               <button className="btn btn--ghost" disabled={busy || name.trim() === player.name}
                 onClick={() => act(() => adminRenamePlayer(player.id, name), 'Name updated.')}>
@@ -487,7 +491,7 @@ function PlayerRow({ player, run }: { player: Player; run: Run }) {
             label="Delete" confirmLabel="Delete for good?"
             onConfirm={() => act(() => adminDeletePlayer(player.id), `${player.name} removed.`)} />
           {player.team_id !== null && (
-            <p className="dim" style={{ fontSize: 11.5, margin: 0 }}>
+            <p className="field__hint" style={{ padding: 0 }}>
               Dissolve their team before deleting them.
             </p>
           )}
@@ -507,18 +511,18 @@ function ChatModeration({ run }: { run: Run }) {
     <section className="section">
       <div className="eyebrow">Chat</div>
       {recent.length === 0 ? (
-        <div className="card center muted" style={{ padding: 24, fontSize: 14 }}>No messages yet.</div>
+        <div className="card center muted t-subhead" style={{ padding: 'var(--s-6) var(--s-4)' }}>No messages yet.</div>
       ) : (
         <div className="card card--flat">
           {recent.map((message, index) => (
             <div key={message.id} className="spread"
-              style={{ padding: '11px 15px', borderTop: index === 0 ? 'none' : '1px solid var(--line)', gap: 10 }}>
+              style={{ padding: 'var(--s-3) var(--s-4)', borderTop: index === 0 ? 'none' : '1px solid var(--sep)', gap: 'var(--s-3)' }}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 11.5, color: 'var(--text-3)' }}>
+                <div className="t-caption dim">
                   {message.kind === 'result' ? 'Result' : message.kind === 'taunt' ? 'Taunt' : message.author_name}
                   {message.team_name && ` · ${message.team_name}`} · {timeAgo(message.created_at)}
                 </div>
-                <div style={{ fontSize: 13.5, overflowWrap: 'anywhere' }}>{message.body}</div>
+                <div className="t-subhead" style={{ overflowWrap: 'anywhere' }}>{message.body}</div>
               </div>
               <ConfirmButton className="btn btn--quiet btn--sm" style={{ flexShrink: 0, color: 'var(--danger)' }}
                 label="Delete" confirmLabel="Sure?"

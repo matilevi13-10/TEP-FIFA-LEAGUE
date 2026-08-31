@@ -12,9 +12,9 @@ export function Teams() {
 
   return (
     <div className="page">
-      <div className="section" style={{ marginBottom: 18 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 500, letterSpacing: '-0.02em', margin: 0 }}>Teams</h1>
-        <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
+      <div className="section" style={{ marginBottom: 'var(--s-5)' }}>
+        <h1 className="t-title" style={{ margin: 0 }}>Teams</h1>
+        <div className="t-foot dim">
           {teams.length} {teams.length === 1 ? 'team' : 'teams'}
           {waiting.length > 0 && ` · ${waiting.length} without one`}
         </div>
@@ -27,7 +27,7 @@ export function Teams() {
       <section className="section">
         <div className="eyebrow">Teams</div>
         {teams.length === 0 ? (
-          <div className="card center muted" style={{ padding: 28, fontSize: 14 }}>
+          <div className="card center muted t-subhead" style={{ padding: 'var(--s-7) var(--s-4)' }}>
             No teams yet.
           </div>
         ) : (
@@ -36,19 +36,17 @@ export function Teams() {
               const roster = playersFor(team.id)
               const mine = team.id === player.team_id
               return (
-                <div key={team.id} className={`card${mine ? ' card--accent' : ''}`} style={{ padding: '16px 17px' }}>
-                  <div className="spread" style={{ marginBottom: 8 }}>
-                    <span style={{ fontSize: 16, fontWeight: 500, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {team.name}
-                    </span>
+                <div key={team.id} className={`card${mine ? ' card--accent' : ''}`}>
+                  <div className="spread" style={{ marginBottom: 'var(--s-3)' }}>
+                    <span className="t-headline truncate">{team.name}</span>
                     {mine && <span className="pill pill--accent" style={{ flexShrink: 0 }}>You</span>}
                   </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--s-2)' }}>
                     {roster.map((name) => <span key={name} className="pill">{name}</span>)}
                     {roster.length < 2 && <span className="pill dim">Needs a player</span>}
                   </div>
                   {!team.is_active && (
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 8 }}>
+                    <div className="t-caption dim" style={{ marginTop: 'var(--s-2)' }}>
                       Not counted in the table
                     </div>
                   )}
@@ -62,16 +60,16 @@ export function Teams() {
       <section className="section">
         <div className="eyebrow">Not on a team</div>
         {waiting.length === 0 ? (
-          <div className="card center muted" style={{ padding: 28, fontSize: 14 }}>
+          <div className="card center muted t-subhead" style={{ padding: 'var(--s-7) var(--s-4)' }}>
             Everyone has a team.
           </div>
         ) : (
           <div className="stack">
             {waiting.map((other) => (
-              <div key={other.id} className="card spread" style={{ padding: '13px 16px' }}>
+              <div key={other.id} className="card spread">
                 <div style={{ minWidth: 0 }}>
-                  <div style={{ fontSize: 15, fontWeight: 500 }}>{other.name}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
+                  <div className="t-headline">{other.name}</div>
+                  <div className="t-caption dim">
                     {other.user_id ? 'Signed up · free to be picked' : 'Named by someone, not signed up yet'}
                   </div>
                 </div>

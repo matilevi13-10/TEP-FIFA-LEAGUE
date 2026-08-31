@@ -4,6 +4,7 @@ import { useLeague } from '../lib/league'
 import { postTaunt } from '../lib/actions'
 import { useToast } from './Toast'
 import { haptic } from '../lib/format'
+import { useSheetDrag } from '../lib/sheet'
 import { readableError } from '../lib/supabase'
 
 const DISMISSED_KEY = 'tep.taunt.dismissed'
@@ -33,6 +34,7 @@ export function TauntPrompt() {
   const [dismissed, setDismissed] = useState<string[]>(readDismissed)
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
+  const drag = useSheetDrag(() => close())
 
   const myTeamId = league.myTeam?.id
 
@@ -87,16 +89,20 @@ export function TauntPrompt() {
   }
 
   return (
-    <div className="taunt-scrim" role="dialog" aria-label="Taunt your opponent">
-      <div className="taunt-card">
-        <div className="taunt-title">TAUNT</div>
+    <>
+      <div className="scrim" style={{ zIndex: 69 }} onClick={close} />
+      <div className="taunt-sheet" role="dialog" aria-label="Taunt your opponent" {...drag.surface}>
+        <div {...drag.handle}>
+          <div className="sheet__grabber" aria-hidden />
+        </div>
+        <div className="taunt-title" style={{ marginTop: 'var(--s-3)' }}>TAUNT</div>
 
-        <p className="center" style={{ margin: '14px 0 4px', fontSize: 15, color: 'var(--text-2)' }}>
-          You beat <strong style={{ color: 'var(--text)' }}>{opponent?.name ?? 'them'}</strong>{' '}
+        <p className="center t-subhead muted" style={{ margin: 'var(--s-4) 0 var(--s-1)' }}>
+          You beat <strong style={{ color: 'var(--text)', fontWeight: 600 }}>{opponent?.name ?? 'them'}</strong>{' '}
           <span style={{ color: 'var(--text)', fontWeight: 700 }}>{myScore}–{theirScore}</span>
           {match.phase === 'playoff' && ' in the playoffs'}.
         </p>
-        <p className="center dim" style={{ margin: '0 0 18px', fontSize: 13 }}>
+        <p className="center dim t-foot" style={{ margin: '0 0 var(--s-5)' }}>
           Say something to the whole league. One shot.
         </p>
 
@@ -108,7 +114,7 @@ export function TauntPrompt() {
           value={body}
           onChange={(e) => setBody(e.target.value)}
           onKeyDown={(e) => { if (e.key === 'Enter') void send() }}
-          style={{ marginBottom: 12 }}
+          style={{ marginBottom: 'var(--s-3)' }}
         />
 
         <button
@@ -118,10 +124,10 @@ export function TauntPrompt() {
         >
           {busy ? 'Dropping…' : 'Send it'}
         </button>
-        <button className="btn btn--quiet btn--block" disabled={busy} onClick={close} style={{ marginTop: 4 }}>
+        <button className="btn btn--plain btn--block" disabled={busy} onClick={close} style={{ marginTop: 'var(--s-1)' }}>
           Stay humble
         </button>
       </div>
-    </div>
+    </>
   )
 }

@@ -41,8 +41,8 @@ export function AddTeamForm() {
   return (
     <div className="card card--accent stack">
       <div>
-        <div className="eyebrow" style={{ margin: 0 }}>You're not on a team yet</div>
-        <p style={{ margin: '6px 0 0', fontSize: 14, color: 'var(--text-2)' }}>
+        <div className="t-headline">You're not on a team yet</div>
+        <p className="t-subhead muted" style={{ margin: 'var(--s-1) 0 0' }}>
           Teams are two players. Create yours to start logging results.
         </p>
       </div>
@@ -72,10 +72,10 @@ export function AddTeamForm() {
             placeholder={available.length > 0 ? '…or type their name' : "Your teammate's name"}
             value={teammateName} onChange={(e) => setTeammateName(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') void create() }}
-            style={{ marginTop: available.length > 0 ? 8 : 0 }}
+            style={{ marginTop: available.length > 0 ? 'var(--s-2)' : 0 }}
           />
         )}
-        <p className="dim" style={{ margin: '2px 0 0', fontSize: 12 }}>
+        <p className="field__hint">
           {picked
             ? 'They join the team straight away.'
             : "They'll join automatically when they sign up with that exact username."}

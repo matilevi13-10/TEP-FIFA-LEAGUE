@@ -5,6 +5,7 @@ import { postMessage } from '../lib/actions'
 import { useToast } from './Toast'
 import { IconChat, IconClose, IconSend } from './Icons'
 import { haptic, timeAgo } from '../lib/format'
+import { useSheetDrag } from '../lib/sheet'
 import { readableError } from '../lib/supabase'
 import type { Message } from '../lib/types'
 
@@ -19,6 +20,7 @@ export function Chat() {
   const [sending, setSending] = useState(false)
   const [lastRead, setLastRead] = useState<string>(() => localStorage.getItem(READ_KEY) ?? '')
   const logRef = useRef<HTMLDivElement>(null)
+  const drag = useSheetDrag(() => setOpen(false))
 
   const { messages } = league
   const newest = messages.length ? messages[messages.length - 1].created_at : ''
@@ -76,28 +78,29 @@ export function Chat() {
 
       {open && (
         <>
-          <div className="chat-scrim" onClick={() => setOpen(false)} />
-          <div className="chat-panel" role="dialog" aria-label="League chat">
-            <div className="chat-head">
-              <div>
-                <div style={{ fontSize: 15, fontWeight: 500 }}>League chat</div>
-                <div style={{ fontSize: 12, color: 'var(--text-3)' }}>
-                  Everyone in the league, one room
+          <div className="scrim" onClick={() => setOpen(false)} />
+          <div className="sheet chat-panel" role="dialog" aria-label="League chat" {...drag.surface}>
+            <div {...drag.handle}>
+              <div className="sheet__grabber" aria-hidden />
+              <div className="sheet__head">
+                <div>
+                  <div className="t-headline">League chat</div>
+                  <div className="t-caption dim">Everyone in the league, one room</div>
                 </div>
+                <button
+                  className="btn btn--ghost btn--sm btn--icon"
+                  aria-label="Close chat"
+                  onClick={() => setOpen(false)}
+                  style={{ width: '2.25rem' }}
+                >
+                  <span className="btn__glyph"><IconClose /></span>
+                </button>
               </div>
-              <button
-                className="btn btn--quiet btn--sm"
-                aria-label="Close chat"
-                onClick={() => setOpen(false)}
-                style={{ minHeight: 40, width: 40, padding: 0 }}
-              >
-                <span style={{ width: 17, height: 17, display: 'block' }}><IconClose /></span>
-              </button>
             </div>
 
             <div className="chat-log" ref={logRef}>
               {messages.length === 0 ? (
-                <p className="center dim" style={{ fontSize: 14, margin: 'auto 0' }}>
+                <p className="center dim t-subhead" style={{ margin: 'auto 0' }}>
                   Nothing here yet. Results show up automatically — say something in the meantime.
                 </p>
               ) : (
@@ -117,13 +120,15 @@ export function Chat() {
                 onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send() } }}
               />
               <button
-                className="btn btn--primary"
+                className="btn btn--primary btn--icon"
                 aria-label="Send"
                 disabled={sending || draft.trim().length === 0}
                 onClick={send}
-                style={{ width: 56, padding: 0, flexShrink: 0 }}
+                style={{ flexShrink: 0 }}
               >
-                <span style={{ width: 20, height: 20, display: 'block' }}><IconSend /></span>
+                <span className="btn__glyph" style={{ width: '1.25rem', height: '1.25rem' }}>
+                  <IconSend />
+                </span>
               </button>
             </div>
           </div>
@@ -144,8 +149,8 @@ function Bubble({ message, mine }: { message: Message; mine: boolean }) {
 
     return (
       <div className="msg--result">
-        <div className="eyebrow" style={{ margin: '0 0 5px' }}>
-          {match?.phase === 'playoff' ? 'Playoff result' : 'Result'}
+        <div className="msg__taunt-tag" style={{ color: 'var(--text-3)' }}>
+          {match?.phase === 'playoff' ? 'Playoff' : 'Result'}
         </div>
         {match && teamA && teamB ? (
           <div className="msg__score">
@@ -156,7 +161,7 @@ function Bubble({ message, mine }: { message: Message; mine: boolean }) {
         ) : (
           <div className="msg__score">{message.body}</div>
         )}
-        <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 4 }}>
+        <div className="t-caption dim" style={{ marginTop: 'var(--s-1)' }}>
           {winner ? `${winner} win` : 'Result'} · {timeAgo(message.created_at)}
         </div>
       </div>
@@ -168,7 +173,7 @@ function Bubble({ message, mine }: { message: Message; mine: boolean }) {
       <div className="msg--taunt">
         <div className="msg__taunt-tag">Taunt</div>
         <div className="msg__body">“{message.body}”</div>
-        <div style={{ fontSize: 11.5, color: 'var(--text-3)', marginTop: 6 }}>
+        <div className="t-caption dim" style={{ marginTop: 'var(--s-2)' }}>
           {message.team_name ?? message.author_name} · {timeAgo(message.created_at)}
         </div>
       </div>

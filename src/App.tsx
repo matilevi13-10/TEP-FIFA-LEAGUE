@@ -17,7 +17,7 @@ export function App() {
 
   if (!ready) {
     return (
-      <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center', animation: 'enter 500ms var(--ease) both' }}>
+      <div style={{ minHeight: '100dvh', display: 'grid', placeItems: 'center' }}>
         <div style={{ filter: 'drop-shadow(0 0 30px rgba(181,168,255,0.28))', opacity: 0.9 }}>
           <Logo height={40} />
         </div>
@@ -31,12 +31,12 @@ export function App() {
   // call could not reach Supabase at all.
   if (!player) {
     return (
-      <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 18, padding: 'var(--gutter)' }}>
+      <div style={{ minHeight: '100dvh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 'var(--s-5)', padding: 'var(--gutter)' }}>
         <Logo height={40} />
-        <p className="muted center" style={{ maxWidth: 320, fontSize: 14, margin: 0 }}>
+        <p className="muted center t-subhead" style={{ maxWidth: '20rem', margin: 0 }}>
           Couldn't finish setting up your account. Check your connection and try again.
         </p>
-        <div className="row" style={{ gap: 8 }}>
+        <div className="row" style={{ gap: 'var(--s-2)' }}>
           <button className="btn btn--primary" onClick={() => void reloadPlayer()}>Try again</button>
           <button className="btn btn--ghost" onClick={() => void signOut()}>Sign out</button>
         </div>
@@ -51,26 +51,9 @@ export function App() {
           <div className="header__inner">
             <Logo height={19} />
             <TopNav />
-            <button
-              className="header__team"
-              onClick={() => void signOut()}
-              title="Sign out"
-              style={{ display: 'flex', alignItems: 'center', gap: 8, minHeight: 34 }}
-            >
-              <span style={{ maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {player.name}
-              </span>
-              <span
-                aria-hidden
-                style={{
-                  width: 27, height: 27, borderRadius: '50%', flexShrink: 0,
-                  background: 'rgba(181,168,255,0.16)', border: '1px solid rgba(181,168,255,0.3)',
-                  color: 'var(--accent)', display: 'grid', placeItems: 'center',
-                  fontSize: 11, fontWeight: 700,
-                }}
-              >
-                {player.name.slice(0, 2).toUpperCase()}
-              </span>
+            <button className="header__me" onClick={() => void signOut()} title="Sign out">
+              <span className="truncate" style={{ maxWidth: '8rem' }}>{player.name}</span>
+              <span className="avatar" aria-hidden>{player.name.slice(0, 2).toUpperCase()}</span>
             </button>
           </div>
         </header>
