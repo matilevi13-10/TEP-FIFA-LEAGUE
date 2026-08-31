@@ -1,12 +1,18 @@
 -- ============================================================================
--- TEP FIFA LEAGUE — migration 002: email accounts, direct team creation, chat
+-- TEP FIFA LEAGUE — migration 002: accounts, teams, chat, fixtures
 --
--- Takes the original schema (teams shared a PIN to log in) to the current one:
---   • People sign up with email + password + a username. Supabase Auth owns
---     the credentials; this schema owns the username and who the admin is.
+-- One cumulative migration from the original schema (teams shared a PIN to log
+-- in) to the current one:
+--   • People sign up with email + password + a username. Supabase Auth owns the
+--     credentials; this schema owns the username and who the admin is. A trigger
+--     on auth.users creates the profile, so a signed-in account always has one.
 --   • Whoever signs up with league_settings.admin_email gets the admin controls.
---   • One person creates a team and names their teammate — either an existing
---     account or a placeholder name that person claims when they sign up.
+--   • Teams form by mutual consent: one unteamed player asks another, the team
+--     exists when they accept. Nothing can create a player but signing up.
+--   • Either teammate can rename the team, or leave it before the season starts.
+--   • No draws — every confirmed result has a winner.
+--   • Starting the season generates the league fixtures. Scores are entered
+--     against a fixture, not a freely chosen opponent.
 --   • A league chat, with automatic result announcements and taunts.
 --
 -- Safe on your live database: additive, wrapped in a transaction, re-runnable.
@@ -20,6 +26,10 @@
 --   • The old admin-only team login is removed; sign up with the admin email
 --     instead.
 --   • Duplicate usernames get a numeric suffix, since usernames are now unique.
+--   • Placeholder players with no team are removed; any sitting ON a team are
+--     reported and left alone for you to decide about.
+--   • Confirmed draws are voided (scores kept) so they stop counting.
+--   • Unconfirmed league results go back on the schedule as fixtures.
 --
 -- AFTER RUNNING THIS, in the Supabase dashboard:
 --   Authentication → Sign In / Providers → Email
