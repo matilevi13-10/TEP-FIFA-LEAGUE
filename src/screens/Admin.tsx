@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../lib/auth'
 import { useLeague } from '../lib/league'
 import {
-  adminCreateTeam, adminDeleteMessage, adminDeletePlayer, adminSetSeasonStarted,
+  adminCreateTeam, adminDeleteMessage, adminDeletePlayer, adminRegenerateSchedule, adminSetSeasonStarted,
   adminDissolveTeam, adminRenamePlayer, adminResetPlayoffs, adminResolveMatch,
   adminStartPlayoffs, adminUpdateSettings, adminUpdateTeam, adminVoidMatch,
 } from '../lib/actions'
@@ -145,7 +145,7 @@ function SeasonState({ run }: { run: Run }) {
   const set = async (next: boolean) => {
     setBusy(true)
     await run(() => adminSetSeasonStarted(next),
-      next ? 'Season started.' : 'Back to pre-season.')
+      next ? 'Season started — fixtures generated.' : 'Back to pre-season.')
     setBusy(false)
   }
 
@@ -169,21 +169,51 @@ function SeasonState({ run }: { run: Run }) {
 
         {locked ? (
           <p className="field__hint" style={{ padding: 0 }}>
-            Results have already been confirmed, so the season counts as started
-            whatever this is set to. Use Admin → Teams to change a team now.
+            Results have already been confirmed, so the schedule is fixed and the
+            season cannot be reopened. Use Admin → Teams to change a team, or void
+            a result to put its fixture back on the schedule.
           </p>
         ) : started ? (
-          <button className="btn btn--ghost btn--block" disabled={busy} onClick={() => set(false)}>
-            Reopen pre-season
-          </button>
+          <>
+            <div className="row" style={{ gap: 'var(--s-2)' }}>
+              <ConfirmButton
+                className="btn btn--ghost btn--sm" style={{ flex: 1 }} disabled={busy}
+                label="Reshuffle fixtures" confirmLabel="Rebuild the whole schedule?"
+                onConfirm={async () => {
+                  setBusy(true)
+                  await run(async () => {
+                    const made = await adminRegenerateSchedule()
+                    return made
+                  }, 'Schedule rebuilt.')
+                  setBusy(false)
+                }}
+              />
+              <ConfirmButton
+                className="btn btn--danger btn--sm" style={{ flex: 1 }} disabled={busy}
+                label="Reopen pre-season" confirmLabel="This deletes the schedule — sure?"
+                onConfirm={() => set(false)}
+              />
+            </div>
+            <p className="field__hint" style={{ padding: 0 }}>
+              {league.schedule.length} fixtures generated. Both options are only
+              available while no result has been confirmed.
+            </p>
+          </>
         ) : (
-          <ConfirmButton
-            className="btn btn--primary btn--block"
-            disabled={busy}
-            label="Start the season"
-            confirmLabel="Confirm — players can no longer leave their teams"
-            onConfirm={() => set(true)}
-          />
+          <>
+            <ConfirmButton
+              className="btn btn--primary btn--block"
+              disabled={busy}
+              label="Start the season"
+              confirmLabel="Confirm — generates the fixtures and locks the teams"
+              onConfirm={() => set(true)}
+            />
+            <p className="field__hint" style={{ padding: 0 }}>
+              This builds the full schedule from the {league.activeTeams.length} teams
+              and {league.settings?.games_per_team ?? 0} games per team, and stops
+              players leaving their teams.
+            </p>
+          </>
         )}
       </div>
     </section>

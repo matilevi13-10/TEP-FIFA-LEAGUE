@@ -291,6 +291,43 @@ begin
 end $$;
 
 -- ---------------------------------------------------------------------------
+-- 2d. League matches are now fixtures on a generated schedule
+-- ---------------------------------------------------------------------------
+
+-- Previously a league match sprang into existence when somebody submitted a
+-- score. Now the schedule is generated up front and results are entered against
+-- it, so a league row can legitimately exist with no score yet.
+--
+-- Anything already played keeps its result. Unplayed league rows — a submission
+-- that was never confirmed — go back to 'scheduled' so they sit on the schedule
+-- like any other fixture rather than dangling.
+do $$
+declare n int;
+begin
+  update public.matches
+     set status = 'scheduled', score_a = null, score_b = null,
+         submitted_by = null, updated_at = now()
+   where phase = 'league' and status in ('pending', 'disputed');
+  get diagnostics n = row_count;
+  if n > 0 then
+    raise notice '% unconfirmed league result(s) returned to the schedule.', n;
+  end if;
+
+  -- Existing league matches predate rounds; number them so the schedule views
+  -- have something sane to group by.
+  if exists (select 1 from public.matches where phase = 'league' and round is null) then
+    with numbered as (
+      select id, row_number() over (order by created_at) as rn
+        from public.matches where phase = 'league' and round is null
+    )
+    update public.matches m
+       set round = numbered.rn, slot = 0
+      from numbered where numbered.id = m.id;
+    raise notice 'Existing league matches were given round numbers.';
+  end if;
+end $$;
+
+-- ---------------------------------------------------------------------------
 -- 3. Drop what this version replaces
 -- ---------------------------------------------------------------------------
 
@@ -318,4 +355,9 @@ drop function if exists public.decline_teammate_request(uuid);
 drop function if exists public.accept_teammate_request(uuid, text);
 -- create_team took a teammate *name* and invented a player from it. Gone.
 drop function if exists public.create_team(text, uuid, text);
+-- submit_league_result took an opponent; it now takes a fixture id, and the
+-- parameter rename means the old signature has to go rather than be replaced.
+drop function if exists public.submit_league_result(uuid, int, int);
+drop function if exists public.games_played(uuid);
+drop function if exists public.admin_set_season_started(boolean);
 drop function if exists public.admin_create_placeholder(text);

@@ -31,12 +31,37 @@ declare n text; begin
   perform act_as(n);
 end $$;
 
+-- Plays whatever fixture happens to be next, leaving named pairings for the
+-- suites that assert on them.
+create or replace function play_any() returns void language plpgsql as $$
+declare mid uuid; a text; b text; begin
+  select m.id, ta.name, tb.name into mid, a, b
+    from matches m join teams ta on ta.id = m.team_a join teams tb on tb.id = m.team_b
+   where m.phase='league' and m.status='scheduled'
+   order by m.round, m.slot limit 1;
+  if mid is null then raise exception 'no scheduled fixture left'; end if;
+  perform act_as_team(a);
+  perform submit_league_result(mid, 3, 1);
+  perform act_as_team(b);
+  perform confirm_match(mid);
+end $$;
+
 create or replace function play(w text, l text, ws int, ls int) returns void
 language plpgsql as $$
-declare mid uuid; lid uuid; begin
-  perform act_as_team(w); select id into lid from teams where name = l;
-  mid := submit_league_result(lid, ws, ls);
-  perform act_as_team(l); perform confirm_match(mid);
+declare mid uuid; wid uuid; lid uuid; begin
+  select id into wid from teams where name = w;
+  select id into lid from teams where name = l;
+  select id into mid from matches
+   where phase='league' and status in ('scheduled','disputed')
+     and ((team_a=wid and team_b=lid) or (team_a=lid and team_b=wid))
+   order by round limit 1;
+  if mid is null then
+    raise exception 'no scheduled fixture for % vs %', w, l;
+  end if;
+  perform act_as_team(w);
+  perform submit_league_result(mid, ws, ls);
+  perform act_as_team(l);
+  perform confirm_match(mid);
 end $$;
 
 -- signUp with no metadata, to prove the trigger still produces a usable row.
@@ -530,13 +555,41 @@ do $$ declare t uuid; r uuid; begin
 end $$;
 
 \echo '=== 14b. once the season starts, leaving is gone ==='
-do $$ begin
+do $$ declare made int; n int; teams_n int; begin
   perform act_as('Mati');
-  perform admin_set_season_started(true);
+  if exists (select 1 from matches where phase='league') then
+    raise exception 'TEST FAILED: fixtures exist before the season started';
+  end if;
+
+  made := admin_set_season_started(true);
   if not season_has_started() then
     raise exception 'TEST FAILED: admin start did not register';
   end if;
   raise notice 'ok: admin can start the season';
+
+  if made < 1 then raise exception 'TEST FAILED: starting the season made no fixtures'; end if;
+  select count(*) into n from matches where phase='league' and status='scheduled';
+  if n <> made then raise exception 'TEST FAILED: % of % fixtures scheduled', n, made; end if;
+  raise notice 'ok: starting the season generated % scheduled fixtures', made;
+
+  -- Every active team is on the schedule, none plays itself, all rounds numbered.
+  select count(*) into teams_n from teams where is_active;
+  if exists (select 1 from matches where phase='league'
+              and (round is null or team_a is null or team_b is null or team_a = team_b)) then
+    raise exception 'TEST FAILED: a fixture is malformed';
+  end if;
+  if (select count(distinct t.id) from teams t
+       join matches m on (m.team_a = t.id or m.team_b = t.id)
+      where t.is_active and m.phase='league') <> teams_n then
+    raise exception 'TEST FAILED: not every team has fixtures';
+  end if;
+  raise notice 'ok: every team is on the schedule, fixtures well formed';
+
+  -- Regenerating is fine while nothing has been played.
+  if admin_regenerate_schedule() < 1 then
+    raise exception 'TEST FAILED: regenerate produced nothing';
+  end if;
+  raise notice 'ok: the schedule can be regenerated before any result';
 
   perform act_as('Quitter');
   begin
@@ -544,19 +597,25 @@ do $$ begin
     raise exception 'TEST FAILED: left a team after the season started';
   exception when sqlstate 'P0001' then raise notice 'ok: leaving blocked once started'; end;
 
-  -- reopening is the admin's call too
+  -- reopening is the admin's call too, while nothing has been played
   perform act_as('Mati');
   perform admin_set_season_started(false);
   if season_has_started() then
     raise exception 'TEST FAILED: could not reopen the pre-season';
   end if;
-  raise notice 'ok: admin can reopen the pre-season';
+  if exists (select 1 from matches where phase='league') then
+    raise exception 'TEST FAILED: reopening left fixtures behind';
+  end if;
+  raise notice 'ok: admin can reopen the pre-season, and the schedule goes with it';
 end $$;
 
 do $$ begin
   -- A confirmed result counts as started even if the admin never pressed start.
   if not season_has_started() then raise notice 'ok: still pre-season before any result'; end if;
-  perform play('Los Galácticos','Tiki Taka', 2, 1);
+  -- Starting the season lays down the fixtures; only then can anything be played.
+  perform act_as('Mati');
+  perform admin_set_season_started(true);
+  perform play_any();
   if not season_has_started() then
     raise exception 'TEST FAILED: a confirmed result did not start the season';
   end if;

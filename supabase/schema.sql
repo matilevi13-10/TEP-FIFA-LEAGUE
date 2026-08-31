@@ -425,6 +425,100 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
+-- Fixtures
+--
+-- The league is played to a generated schedule rather than ad hoc. Everyone
+-- plays everyone once before anyone plays anyone twice, which falls out of
+-- building the schedule as repeated round-robin cycles.
+-- ---------------------------------------------------------------------------
+
+-- Builds the league schedule for the active teams and returns how many fixtures
+-- it made. Wipes any existing league fixtures first, so it doubles as regenerate.
+--
+-- Method: the circle method gives one cycle in which every team meets every
+-- other exactly once (with a bye each if the count is odd). Cycles are laid down
+-- back to back, each independently shuffled, and a pairing is skipped once
+-- either side already has its full allocation of games. That caps everyone at
+-- games_per_team without anyone meeting the same opponent twice while a first
+-- meeting is still outstanding.
+create or replace function public.generate_schedule()
+returns int language plpgsql security definer set search_path = public as $$
+declare
+  ids       uuid[];
+  n         int;
+  slots     int;
+  target    int;
+  arr       int[];
+  played    int[];
+  round_no  int := 0;
+  slot_no   int;
+  made      int := 0;
+  cycle     int;
+  r         int;
+  i         int;
+  a         int;
+  b         int;
+  emitted   boolean;
+  carry     int;
+begin
+  delete from public.matches where phase = 'league';
+
+  select array_agg(id order by random()) into ids
+    from public.teams where is_active;
+  n := coalesce(array_length(ids, 1), 0);
+  if n < 2 then return 0; end if;
+
+  select games_per_team into target from public.league_settings where id = 1;
+  -- Nobody can play more games than there are opponents-times-cycles we build,
+  -- but the cap below keeps a silly setting from looping forever.
+  target := least(target, (n - 1) * 20);
+
+  played := array_fill(0, array[n]);
+  -- An odd count gets a phantom slot; whoever draws it sits that round out.
+  slots := case when n % 2 = 0 then n else n + 1 end;
+
+  for cycle in 1 .. greatest(1, target) loop
+    -- Fresh shuffle each cycle so repeat meetings do not follow the same order.
+    select array_agg(x order by random()) into arr
+      from generate_series(1, slots) as g(x);
+
+    for r in 1 .. slots - 1 loop
+      emitted := false;
+      slot_no := 0;
+
+      for i in 1 .. slots / 2 loop
+        a := arr[i];
+        b := arr[slots + 1 - i];
+        -- Skip the phantom, and skip anyone who already has a full card.
+        if a <= n and b <= n and played[a] < target and played[b] < target then
+          insert into public.matches (phase, round, slot, team_a, team_b, status)
+          values ('league', round_no + 1, slot_no, ids[a], ids[b], 'scheduled');
+          played[a] := played[a] + 1;
+          played[b] := played[b] + 1;
+          slot_no := slot_no + 1;
+          made := made + 1;
+          emitted := true;
+        end if;
+      end loop;
+
+      if emitted then round_no := round_no + 1; end if;
+
+      -- Rotate every slot but the first — the circle method.
+      carry := arr[slots];
+      for i in reverse slots .. 3 loop
+        arr[i] := arr[i - 1];
+      end loop;
+      arr[2] := carry;
+    end loop;
+
+    exit when (select min(x) from unnest(played) as t(x)) >= target;
+  end loop;
+
+  return made;
+end;
+$$;
+
+-- ---------------------------------------------------------------------------
 -- Season state
 -- ---------------------------------------------------------------------------
 
@@ -441,14 +535,50 @@ returns boolean language sql stable security definer set search_path = public as
       or exists (select 1 from public.matches where status = 'confirmed');
 $$;
 
+-- Starting the season locks the teams and lays down the fixtures in one action.
+-- Reopening it takes the schedule away again, which is only allowed while
+-- nothing has been played.
 create or replace function public.admin_set_season_started(p_started boolean)
-returns void language plpgsql security definer set search_path = public as $$
+returns int language plpgsql security definer set search_path = public as $$
+declare made int := 0;
 begin
   perform public.assert_admin();
-  update public.league_settings
-     set season_started_at = case when p_started then coalesce(season_started_at, now()) end,
-         updated_at = now()
-   where id = 1;
+
+  if p_started then
+    if (select season_started_at is null from public.league_settings where id = 1) then
+      made := public.generate_schedule();
+    end if;
+    update public.league_settings
+       set season_started_at = coalesce(season_started_at, now()), updated_at = now()
+     where id = 1;
+  else
+    if exists (select 1 from public.matches where status = 'confirmed') then
+      raise exception 'Results have already been confirmed — the season cannot be reopened.'
+        using errcode = 'P0001';
+    end if;
+    delete from public.matches where phase = 'league';
+    update public.league_settings
+       set season_started_at = null, updated_at = now() where id = 1;
+  end if;
+
+  return made;
+end;
+$$;
+
+-- Reshuffle the fixtures. Only while nothing has been played, since a confirmed
+-- result would otherwise lose the fixture it belongs to.
+create or replace function public.admin_regenerate_schedule()
+returns int language plpgsql security definer set search_path = public as $$
+begin
+  perform public.assert_admin();
+  if exists (select 1 from public.matches where status = 'confirmed') then
+    raise exception 'Results have already been confirmed — the schedule is fixed now.'
+      using errcode = 'P0001';
+  end if;
+  if (select phase from public.league_settings where id = 1) <> 'league' then
+    raise exception 'The playoffs have started.' using errcode = 'P0001';
+  end if;
+  return public.generate_schedule();
 end;
 $$;
 
@@ -675,22 +805,25 @@ $$;
 -- Match submission and confirmation
 -- ---------------------------------------------------------------------------
 
-create or replace function public.games_played(p_team uuid)
+-- Fixtures this team still has to play.
+create or replace function public.fixtures_remaining(p_team uuid)
 returns int language sql stable security definer set search_path = public as $$
   select count(*)::int from public.matches
-   where phase = 'league' and status in ('confirmed','pending','disputed')
+   where phase = 'league' and status in ('scheduled','pending','disputed')
      and (team_a = p_team or team_b = p_team);
 $$;
 
--- Records a league result. The winning team submits; there are no draws.
+-- Records the result of a scheduled league fixture. Either team may enter it —
+-- the other side still has to confirm before it counts, which is the real
+-- safeguard — but the score is always stored from the fixture's own point of
+-- view, never the submitter's.
 create or replace function public.submit_league_result(
-  p_opponent uuid, p_my_score int, p_opp_score int
+  p_match_id uuid, p_my_score int, p_opp_score int
 ) returns uuid language plpgsql security definer set search_path = public as $$
 declare
-  me     uuid := public.current_team_id();
-  cfg    public.league_settings%rowtype;
-  opp    public.teams%rowtype;
-  new_id uuid;
+  me  uuid := public.current_team_id();
+  cfg public.league_settings%rowtype;
+  m   public.matches%rowtype;
 begin
   if public.current_player_id() is null then
     raise exception 'Not signed in.' using errcode = 'P0001';
@@ -698,47 +831,40 @@ begin
   if me is null then
     raise exception 'You need a team before you can log a result.' using errcode = 'P0001';
   end if;
-  if me = p_opponent then
-    raise exception 'Pick an opponent other than your own team.' using errcode = 'P0001';
-  end if;
 
   select * into cfg from public.league_settings where id = 1;
   if cfg.phase <> 'league' then
     raise exception 'The league phase is closed — playoffs have started.' using errcode = 'P0001';
   end if;
 
-  select * into opp from public.teams where id = p_opponent;
-  if not found or not opp.is_active then
-    raise exception 'That opponent is not in the league.' using errcode = 'P0002';
+  select * into m from public.matches where id = p_match_id for update;
+  if not found or m.phase <> 'league' then
+    raise exception 'That fixture does not exist.' using errcode = 'P0002';
+  end if;
+  if me not in (m.team_a, m.team_b) then
+    raise exception 'That is not your fixture.' using errcode = 'P0001';
+  end if;
+  if m.status not in ('scheduled', 'disputed') then
+    raise exception 'This fixture already has a result waiting.' using errcode = 'P0001';
   end if;
 
   if p_my_score is null or p_opp_score is null
      or p_my_score < 0 or p_opp_score < 0 or p_my_score > 99 or p_opp_score > 99 then
     raise exception 'Enter a valid score.' using errcode = 'P0001';
   end if;
-
   if p_my_score = p_opp_score then
     raise exception 'Games cannot end level — play it out until somebody wins.'
       using errcode = 'P0001';
   end if;
-  if p_my_score < p_opp_score then
-    raise exception 'The winning team submits the result. Ask % to send this one.', opp.name
-      using errcode = 'P0001';
-  end if;
 
-  if public.games_played(me) >= cfg.games_per_team then
-    raise exception 'You have already played all % of your games.', cfg.games_per_team
-      using errcode = 'P0001';
-  end if;
-  if public.games_played(p_opponent) >= cfg.games_per_team then
-    raise exception '% has already played all % of their games.', opp.name, cfg.games_per_team
-      using errcode = 'P0001';
-  end if;
-
-  insert into public.matches (phase, team_a, team_b, score_a, score_b, status, submitted_by)
-  values ('league', me, p_opponent, p_my_score, p_opp_score, 'pending', me)
-  returning id into new_id;
-  return new_id;
+  update public.matches
+     set score_a      = case when me = team_a then p_my_score else p_opp_score end,
+         score_b      = case when me = team_a then p_opp_score else p_my_score end,
+         status       = 'pending',
+         submitted_by = me,
+         updated_at   = now()
+   where id = p_match_id;
+  return p_match_id;
 end;
 $$;
 
@@ -846,14 +972,11 @@ begin
     raise exception 'This result is already settled.' using errcode = 'P0001';
   end if;
 
-  if m.phase = 'league' then
-    delete from public.matches where id = p_match_id;
-  else
-    update public.matches
-       set status = 'scheduled', score_a = null, score_b = null,
-           submitted_by = null, updated_at = now()
-     where id = p_match_id;
-  end if;
+  -- The fixture stays on the schedule either way; only the result is undone.
+  update public.matches
+     set status = 'scheduled', score_a = null, score_b = null,
+         submitted_by = null, updated_at = now()
+   where id = p_match_id;
 end;
 $$;
 
@@ -1205,11 +1328,11 @@ begin
   select array_agg(team_id order by rank) into qualifiers
     from (select team_id, rank from public.standings order by rank limit p_size) q;
 
-  -- Anything still awaiting confirmation can no longer affect seeding.
+  -- Anything unplayed or unconfirmed can no longer affect seeding.
   update public.matches
      set status = 'voided', admin_note = 'Voided automatically when the playoffs started.',
          updated_at = now()
-   where phase = 'league' and status in ('pending','disputed');
+   where phase = 'league' and status in ('scheduled','pending','disputed');
 
   delete from public.matches where phase = 'playoff';
 
@@ -1297,8 +1420,12 @@ begin
            admin_note = p_note, updated_at = now()
      where id = p_match_id;
   else
+    -- League fixtures go back on the schedule to be replayed, rather than
+    -- vanishing from a season everybody is counting games against.
     update public.matches
-       set status = 'voided', winner_id = null, admin_note = p_note, updated_at = now()
+       set status = 'scheduled', score_a = null, score_b = null, winner_id = null,
+           submitted_by = null, confirmed_by = null, confirmed_at = null,
+           admin_note = p_note, updated_at = now()
      where id = p_match_id;
   end if;
 end;
@@ -1344,6 +1471,7 @@ grant execute on function
   public.rename_team(text),
   public.leave_team(),
   public.season_has_started(),
+  public.fixtures_remaining(uuid),
   public.submit_league_result(uuid, int, int),
   public.submit_playoff_result(uuid, int, int),
   public.confirm_match(uuid),
@@ -1356,6 +1484,7 @@ grant execute on function
   public.admin_dissolve_team(uuid),
   public.admin_update_settings(text, int, int, int, text),
   public.admin_set_season_started(boolean),
+  public.admin_regenerate_schedule(),
   public.admin_start_playoffs(int),
   public.admin_reset_playoffs(),
   public.admin_resolve_match(uuid, int, int, text),

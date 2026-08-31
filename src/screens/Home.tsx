@@ -1,9 +1,10 @@
 import { useState } from 'react'
 import { useAuth } from '../lib/auth'
-import { slotsUsed, useLeague } from '../lib/league'
+import { useLeague } from '../lib/league'
 import { cancelSubmission, confirmMatch, disputeMatch } from '../lib/actions'
 import { IncomingRequests } from '../components/IncomingRequests'
 import { TeamFormed } from '../components/TeamFormed'
+import { NextMatch } from '../components/NextMatch'
 import { TeamFormation } from '../components/TeamFormation'
 import { TeamNameEditor } from '../components/TeamNameEditor'
 import { useToast } from '../components/Toast'
@@ -20,12 +21,15 @@ export function Home() {
   const [formed, setFormed] = useState<string | null>(null)
 
   if (!player) return null
-  const { settings, standings, matches, pendingForMe, awaitingOthers, potCents, activeTeams, myTeam } = league
+  const { settings, standings, pendingForMe, awaitingOthers, potCents, activeTeams, myTeam } = league
 
   const me = myTeam ? standings.find((row) => row.team_id === myTeam.id) : undefined
-  const used = myTeam ? slotsUsed(matches, myTeam.id) : 0
-  const total = settings?.games_per_team ?? 0
-  const remaining = Math.max(0, total - used)
+  // Games remaining is now what the schedule actually says, not a setting.
+  const mySchedule = league.myFixtures
+  const total = mySchedule.length || (settings?.games_per_team ?? 0)
+  const remaining = mySchedule.filter(
+    (m) => m.status === 'scheduled' || m.status === 'pending' || m.status === 'disputed',
+  ).length
   const champion = league.teamById(settings?.champion_team_id)
   const qualifying = settings?.playoff_size ?? 0
   const showCutline = settings?.phase === 'league' && qualifying > 0 && standings.length > qualifying
@@ -102,6 +106,8 @@ export function Home() {
             </div>
           </div>
         </section>
+
+        {myTeam && <NextMatch />}
 
         {myTeam ? (
           <section className="section">

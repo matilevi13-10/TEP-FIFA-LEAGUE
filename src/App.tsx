@@ -8,6 +8,7 @@ import { LeagueProvider } from './lib/league'
 import { SignIn } from './screens/SignIn'
 import { Home } from './screens/Home'
 import { Teams } from './screens/Teams'
+import { Schedule } from './screens/Schedule'
 import { Submit } from './screens/Submit'
 import { Bracket } from './screens/Bracket'
 import { Admin } from './screens/Admin'
@@ -66,6 +67,7 @@ export function App() {
           <Route path="/" element={<Home />} />
           <Route path="/teams" element={<Teams />} />
           <Route path="/submit" element={<Submit />} />
+          <Route path="/schedule" element={<Schedule />} />
           <Route path="/bracket" element={<Bracket />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="*" element={<Navigate to="/" replace />} />

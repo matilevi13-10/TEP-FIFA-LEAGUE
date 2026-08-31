@@ -33,9 +33,10 @@ export const renameTeam = (name: string) => call('rename_team', { p_name: name }
 export const leaveTeam = () => call('leave_team')
 
 // ── Matches ───────────────────────────────────────────────────────────────
-export const submitLeagueResult = (opponentId: string, myScore: number, opponentScore: number) =>
+/** Against a scheduled fixture — the opponent comes from the fixture itself. */
+export const submitLeagueResult = (matchId: string, myScore: number, opponentScore: number) =>
   call<string>('submit_league_result', {
-    p_opponent: opponentId, p_my_score: myScore, p_opp_score: opponentScore,
+    p_match_id: matchId, p_my_score: myScore, p_opp_score: opponentScore,
   })
 
 export const submitPlayoffResult = (matchId: string, myScore: number, opponentScore: number) =>
@@ -82,8 +83,11 @@ export const adminUpdateSettings = (
     p_buy_in_cents: buyInCents, p_playoff_size: playoffSize, p_admin_email: adminEmail,
   })
 
+/** Starting the season also generates the fixtures; returns how many it made. */
 export const adminSetSeasonStarted = (started: boolean) =>
-  call('admin_set_season_started', { p_started: started })
+  call<number>('admin_set_season_started', { p_started: started })
+
+export const adminRegenerateSchedule = () => call<number>('admin_regenerate_schedule')
 
 export const adminStartPlayoffs = (size: number) => call('admin_start_playoffs', { p_size: size })
 export const adminResetPlayoffs = () => call('admin_reset_playoffs')

@@ -27,6 +27,14 @@ interface LeagueValue {
   /** The two player names for a team, in slot order. */
   playersFor: (teamId: string | null | undefined) => string[]
   myTeam: Team | undefined
+  /** My team's fixtures in schedule order, played and unplayed. */
+  myFixtures: Match[]
+  /** The next fixture to play — scheduled or disputed, earliest first. */
+  nextFixture: Match | undefined
+  /** A fixture of mine waiting on the opponent to confirm. */
+  awaitingConfirmation: Match | undefined
+  /** The whole league schedule in order. */
+  schedule: Match[]
   /** Results submitted against my team that we still have to approve. */
   pendingForMe: Match[]
   /** Results we submitted that the other team has not approved yet. */
@@ -91,14 +99,11 @@ export function computeStandings(teams: Team[], matches: Match[]): Standing[] {
   return rows
 }
 
-/** League slots a team has used: confirmed, pending and disputed all count. */
-export function slotsUsed(matches: Match[], teamId: string): number {
-  return matches.filter(
-    (m) =>
-      m.phase === 'league' &&
-      (m.status === 'confirmed' || m.status === 'pending' || m.status === 'disputed') &&
-      (m.team_a === teamId || m.team_b === teamId),
-  ).length
+/** Every league fixture involving a team, in schedule order. */
+export function fixturesFor(matches: Match[], teamId: string): Match[] {
+  return matches
+    .filter((m) => m.phase === 'league' && (m.team_a === teamId || m.team_b === teamId))
+    .sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.slot ?? 0) - (b.slot ?? 0))
 }
 
 export function LeagueProvider({ children }: { children: ReactNode }) {
@@ -193,6 +198,20 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
       playerById: (id) => (id ? playersById.get(id) : undefined),
       playersFor: (id) => (id ? (namesByTeam.get(id) ?? []) : []),
       myTeam: myTeamId ? teamsById.get(myTeamId) : undefined,
+      myFixtures: myTeamId ? fixturesFor(matches, myTeamId) : [],
+      nextFixture: myTeamId
+        ? fixturesFor(matches, myTeamId).find(
+            (m) => m.status === 'scheduled' || m.status === 'disputed',
+          )
+        : undefined,
+      awaitingConfirmation: myTeamId
+        ? fixturesFor(matches, myTeamId).find(
+            (m) => m.status === 'pending' && m.submitted_by === myTeamId,
+          )
+        : undefined,
+      schedule: matches
+        .filter((m) => m.phase === 'league')
+        .sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.slot ?? 0) - (b.slot ?? 0)),
       pendingForMe: myTeamId
         ? matches.filter(
             (m) => m.status === 'pending' && m.submitted_by !== myTeamId &&

@@ -53,4 +53,7 @@ export const IconSend = () => (
 export const IconTeams = () => (
   <svg {...base}><circle cx="9" cy="8.2" r="3.2" /><path d="M3.6 19.4c0-3 2.4-5.2 5.4-5.2s5.4 2.2 5.4 5.2" /><path d="M16.2 5.4a3.2 3.2 0 0 1 0 6.1M17.4 14.6c1.8.6 3 2.4 3 4.8" /></svg>
 )
+export const IconSchedule = () => (
+  <svg {...base}><rect x="3.5" y="5" width="17" height="15.5" rx="2.5" /><path d="M3.5 9.5h17M8 3.5v3M16 3.5v3" /></svg>
+)
 

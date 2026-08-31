@@ -4,8 +4,11 @@ A 2v2 FIFA league tracker for one private group. Teams of two, $50 a team, winne
 of the playoff bracket takes the pot. Built to be used from a phone, on the couch,
 mid-argument about whether that goal counted.
 
-- **Phase 1 — League.** Every team plays a set number of games. **Win 3, loss 0 —
-  there are no draws.** A level score cannot be submitted, cannot be settled by an
+- **Phase 1 — League.** Starting the season generates the fixtures: repeated
+  round-robin cycles, shuffled, so everyone plays everyone once before anyone
+  plays anyone twice, capped at the games-per-team setting. Each team sees its
+  Next Match and enters the score against that fixture — there is no free-form
+  match creation. **Win 3, loss 0 — there are no draws.** A level score cannot be submitted, cannot be settled by an
   admin, and cannot exist as a confirmed row in the database. Sorted on points,
   then goal difference, then goals scored. The table is the home page.
 - **Phase 2 — Playoffs.** The admin locks the league and seeds the top 4, 8 or 16

@@ -25,11 +25,11 @@ select m.slot, m.seed_a, ta.name as team_a, m.seed_b, tb.name as team_b
  where m.phase='playoff' and m.round=1 order by m.slot;
 
 \echo '=== 17. the league locks, and teams cannot be dissolved mid-playoffs ==='
-do $$ declare o uuid; begin
+do $$ declare fix uuid; begin
   perform act_as_team('Los Galácticos');
-  select id into o from teams where name='Tiki Taka';
+  select id into fix from matches where phase='league' limit 1;
   begin
-    perform submit_league_result(o, 3, 0);
+    perform submit_league_result(fix, 3, 0);
     raise exception 'TEST FAILED: league submission accepted after lock';
   exception when sqlstate 'P0001' then raise notice 'ok: league phase locked'; end;
 
