@@ -10,9 +10,6 @@ export const IconHome = () => (
 export const IconTable = () => (
   <svg {...base}><path d="M3.5 5.5h17M3.5 12h17M3.5 18.5h17M9 5.5V19" /></svg>
 )
-export const IconSubmit = () => (
-  <svg {...base}><circle cx="12" cy="12" r="8.5" /><path d="M12 8.4v7.2M8.4 12h7.2" /></svg>
-)
 export const IconBracket = () => (
   <svg {...base}><path d="M3.5 5h4.2a2 2 0 0 1 2 2v10a2 2 0 0 0 2 2h1.8M3.5 19h4.2M14.5 12h6M17.6 9l3 3-3 3" /></svg>
 )

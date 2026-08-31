@@ -368,7 +368,11 @@ select.input {
 }
 .tabs__inner {
   max-width: 33rem; margin: 0 auto;
-  display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: var(--s-1);
+  display: grid; grid-auto-flow: column; gap: var(--s-1);
+  /* Capped and centred rather than stretched to fill: with a variable number of
+     tabs, equal thirds on a tablet look like something was removed. */
+  grid-auto-columns: minmax(0, 6.5rem);
+  justify-content: center;
 }
 .tab {
   position: relative;
@@ -859,3 +863,15 @@ select.input {
   flex-shrink: 0; margin-left: auto;
 }
 .btn--pill { border-radius: var(--r-full); padding: 0 var(--s-4); }
+
+/* ── Score sheet ────────────────────────────────────────────────────────── */
+
+.score-sheet { max-height: min(86vh, 44rem); }
+.score-sheet__body {
+  padding: var(--s-4) var(--s-4) var(--s-5);
+  overflow-y: auto; overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+@media (min-width: 64rem) {
+  .score-sheet { width: 26rem; height: auto; }
+}

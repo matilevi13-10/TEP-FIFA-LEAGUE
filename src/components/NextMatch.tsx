@@ -1,10 +1,10 @@
-import { Link } from 'react-router-dom'
+import { useMemo, useState } from 'react'
 import { useLeague } from '../lib/league'
 import { cancelSubmission } from '../lib/actions'
 import { useToast } from './Toast'
 import { haptic, timeAgo } from '../lib/format'
 import { readableError } from '../lib/supabase'
-import { useState } from 'react'
+import { ScoreSheet } from './ScoreSheet'
 import type { Match } from '../lib/types'
 
 /**
@@ -16,9 +16,25 @@ export function NextMatch() {
   const league = useLeague()
   const toast = useToast()
   const [busy, setBusy] = useState(false)
+  const [entering, setEntering] = useState(false)
 
-  const { myTeam, nextFixture, awaitingConfirmation, myFixtures, seasonStarted } = league
+  const { myTeam, nextFixture, awaitingConfirmation, myFixtures, seasonStarted, settings } = league
+  const inPlayoffs = settings?.phase === 'playoffs' || settings?.phase === 'complete'
+
+  // In the playoffs the bracket supplies the fixture instead of the schedule.
+  const playoffFixture = useMemo(() => {
+    if (!myTeam || !inPlayoffs) return undefined
+    return league.matches.find(
+      (m) =>
+        m.phase === 'playoff' &&
+        (m.status === 'scheduled' || m.status === 'disputed') &&
+        m.team_a !== null && m.team_b !== null &&
+        (m.team_a === myTeam.id || m.team_b === myTeam.id),
+    )
+  }, [myTeam, league.matches, inPlayoffs])
+
   if (!myTeam) return null
+  const fixture = inPlayoffs ? playoffFixture : nextFixture
 
   const lastResult = [...myFixtures]
     .filter((m) => m.status === 'confirmed')
@@ -65,7 +81,7 @@ export function NextMatch() {
     )
   }
 
-  if (!seasonStarted) {
+  if (!seasonStarted && !inPlayoffs) {
     return (
       <section className="section">
         <div className="eyebrow">Next match</div>
@@ -78,13 +94,17 @@ export function NextMatch() {
     )
   }
 
-  if (!nextFixture) {
+  if (!fixture) {
     return (
       <section className="section">
-        <div className="eyebrow">Season complete</div>
+        <div className="eyebrow">{inPlayoffs ? 'Playoffs' : 'Season complete'}</div>
         <div className="card center" style={{ padding: 'var(--s-6) var(--s-4)' }}>
           <p className="muted t-subhead" style={{ margin: 0 }}>
-            You've played every fixture. Waiting on the playoffs.
+            {inPlayoffs
+              ? settings?.phase === 'complete'
+                ? 'The season is finished.'
+                : 'No open playoff game — either you are out, or your next opponent is still being decided.'
+              : "You've played every fixture. Waiting on the playoffs."}
           </p>
         </div>
         {lastResult && <LastResult match={lastResult} teamId={myTeam.id} />}
@@ -92,8 +112,8 @@ export function NextMatch() {
     )
   }
 
-  const mineFirst = nextFixture.team_a === myTeam.id
-  const opponent = league.teamById(mineFirst ? nextFixture.team_b : nextFixture.team_a)
+  const mineFirst = fixture.team_a === myTeam.id
+  const opponent = league.teamById(mineFirst ? fixture.team_b : fixture.team_a)
   const roster = opponent ? league.playersFor(opponent.id) : []
 
   return (
@@ -105,18 +125,26 @@ export function NextMatch() {
             <div className="t-title-2 truncate">{opponent?.name ?? 'TBC'}</div>
             <div className="t-caption dim">{roster.join(' & ')}</div>
           </div>
-          <span className="pill" style={{ flexShrink: 0 }}>Round {nextFixture.round}</span>
+          <span className="pill" style={{ flexShrink: 0 }}>
+            {inPlayoffs ? 'Playoff' : `Round ${fixture.round}`}
+          </span>
         </div>
 
-        {nextFixture.status === 'disputed' && (
+        {fixture.status === 'disputed' && (
           <p className="field__hint field__hint--bad" style={{ padding: 0, marginBottom: 'var(--s-3)' }}>
             The last score for this fixture was disputed. Enter it again, or let the admin settle it.
           </p>
         )}
 
-        <Link to="/submit" className="btn btn--primary btn--block">Submit Score</Link>
+        <button className="btn btn--primary btn--block" onClick={() => { haptic(); setEntering(true) }}>
+          Submit Score
+        </button>
       </div>
       {lastResult && <LastResult match={lastResult} teamId={myTeam.id} />}
+
+      {entering && (
+        <ScoreSheet fixture={fixture} myTeam={myTeam} onClose={() => setEntering(false)} />
+      )}
     </section>
   )
 }

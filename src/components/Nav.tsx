@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { useAuth } from '../lib/auth'
 import { useLeague } from '../lib/league'
-import { IconAdmin, IconBracket, IconHome, IconSchedule, IconSubmit, IconTeams } from './Icons'
+import { IconAdmin, IconBracket, IconHome, IconSchedule, IconTeams } from './Icons'
 
 interface Item { to: string; label: string; icon: JSX.Element; badge?: number }
 
@@ -14,7 +14,6 @@ function useNavItems(): Item[] {
     { to: '/', label: 'League', icon: <IconHome />, badge: pendingForMe.length + incomingRequests.length },
     { to: '/teams', label: 'Teams', icon: <IconTeams />, badge: incomingRequests.length },
   ]
-  if (player?.team_id) items.push({ to: '/submit', label: 'Submit', icon: <IconSubmit /> })
   items.push({ to: '/schedule', label: 'Schedule', icon: <IconSchedule /> })
   if (inPlayoffs) items.push({ to: '/bracket', label: 'Bracket', icon: <IconBracket /> })
   if (player?.is_admin) items.push({ to: '/admin', label: 'Admin', icon: <IconAdmin /> })
