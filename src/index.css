@@ -841,3 +841,21 @@ select.input {
 /* Destructive, but quiet — a way out, not something to reach for. */
 .leave-team { color: rgba(255, 107, 107, 0.72); font-weight: 500; }
 .leave-team:hover:not(:disabled) { color: var(--danger); }
+
+/* ── Player pool row ────────────────────────────────────────────────────── */
+
+/* Name on the left, action pinned right. The action never shrinks or wraps —
+   a request button that slides off the bar is the bug this replaces. */
+.pool-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: var(--s-3); min-height: 2.75rem;
+  /* Wrap rather than overflow: two actions plus a long name will not fit a
+     narrow phone, and a clipped Decline button is worse than a second line. */
+  flex-wrap: wrap;
+}
+.pool-row__name { flex: 1 1 9rem; min-width: 0; }
+.pool-row__action {
+  display: flex; align-items: center; gap: var(--s-2);
+  flex-shrink: 0; margin-left: auto;
+}
+.btn--pill { border-radius: var(--r-full); padding: 0 var(--s-4); }

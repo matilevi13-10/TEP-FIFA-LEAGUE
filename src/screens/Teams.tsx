@@ -1,5 +1,6 @@
 import { useAuth } from '../lib/auth'
 import { useLeague } from '../lib/league'
+import { PoolList } from '../components/PoolList'
 import { TeamFormation } from '../components/TeamFormation'
 import { TeamNameEditor } from '../components/TeamNameEditor'
 
@@ -21,6 +22,8 @@ export function Teams() {
         </div>
       </div>
 
+      {/* Unteamed: TeamFormation carries the outgoing request and the pool.
+          Teamed: the pool still shows below, without actions. */}
       {player.team_id === null && player.is_active && <TeamFormation />}
 
       {league.myTeam && (
@@ -67,25 +70,12 @@ export function Teams() {
         )}
       </section>
 
-      <section className="section">
-        <div className="eyebrow">Not on a team</div>
-        {waiting.length === 0 ? (
-          <div className="card center muted t-subhead" style={{ padding: 'var(--s-7) var(--s-4)' }}>
-            Everyone has a team.
-          </div>
-        ) : (
-          <div className="stack">
-            {waiting.map((other) => (
-              <div key={other.id} className="card spread">
-                <div style={{ minWidth: 0 }}>
-                  <div className="t-headline">{other.name}</div>
-                  <div className="t-caption dim">Looking for a teammate</div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
+      {player.team_id !== null && (
+        <section className="section">
+          <div className="eyebrow">Not on a team</div>
+          <PoolList />
+        </section>
+      )}
     </div>
   )
 }
