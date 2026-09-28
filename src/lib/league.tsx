@@ -123,6 +123,35 @@ export function isFinalRound(matches: Match[], round: number | null): boolean {
   return !matches.some((m) => m.phase === 'playoff' && (m.round ?? 0) > (round ?? 0))
 }
 
+/**
+ * How long the regular season runs, in words. Mirrors generate_schedule():
+ * rounds are games / 2, and with an odd number of teams somebody sits out
+ * every week, so the season runs longer than the rounds — 7 teams playing 12
+ * games is 6 rounds over 7 weeks. Pass the built schedule's week count when
+ * there is one; otherwise an uneven cycle can only be estimated.
+ */
+export function describeSeason(teams: number, games: number, scheduledWeeks?: number): string {
+  const rounds = Math.floor(games / 2)
+  if (teams < 2 || rounds < 1) return ''
+  if (teams % 2 === 0) {
+    return `${games} games per team: ${rounds} rounds over ${scheduledWeeks ?? rounds} weeks — one opponent a week, two games that week.`
+  }
+  const exact = rounds % (teams - 1) === 0
+  const weeks = scheduledWeeks ?? Math.ceil((teams * rounds) / (teams - 1))
+  const off = weeks - rounds
+  const length = scheduledWeeks || exact ? `${weeks} weeks` : `about ${weeks} weeks`
+  const offText = exact || scheduledWeeks
+    ? `each team has ${off === 1 ? 'one week' : `${off} weeks`} off`
+    : 'with the odd week off'
+  // An odd number of teams can't all play an odd number of rounds: somebody
+  // is always left without a partner, and ends a round short.
+  const short = rounds % 2 === 1
+    ? ` With ${teams} teams, an odd number of rounds leaves some teams a round short — ` +
+      `${2 * (rounds - 1)} or ${2 * (rounds + 1)} games gives everyone the same number.`
+    : ''
+  return `${games} games per team: ${rounds} rounds over ${length} — ${offText}.${short}`
+}
+
 /** "Week 3 · Game 1 of 2", "Semi-finals · Leg 2 of 2", "Final". */
 export function fixtureLabel(match: Match, matches: Match[]): string {
   if (match.phase === 'league') return `Week ${match.round} · Game ${match.leg} of 2`

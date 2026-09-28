@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../lib/auth'
-import { fixtureLabel, needsShootout, useLeague } from '../lib/league'
+import { describeSeason, fixtureLabel, needsShootout, useLeague } from '../lib/league'
 import {
   adminCreateTeam, adminDeleteMessage, adminDeletePlayer, adminRegenerateSchedule, adminSetSeasonStarted,
   adminDissolveTeam, adminRenamePlayer, adminResetPlayoffs, adminResolveMatch,
@@ -229,15 +229,10 @@ function SeasonState({ run }: { run: Run }) {
               onConfirm={() => set(true)}
             />
             <p className="field__hint" style={{ padding: 0 }}>
-              {(() => {
-                const n = league.activeTeams.length
-                const games = league.settings?.games_per_team ?? 0
-                return n < 2
-                  ? 'You need at least two teams to build a schedule.'
-                  : `${games} games per team: ${games / 2} rounds, one opponent a week, twice that week. ` +
-                    (games / 2 === n - 1 ? 'That is everyone once. ' : '') +
-                    'It also stops players leaving their teams.'
-              })()}
+              {league.activeTeams.length < 2
+                ? 'You need at least two teams to build a schedule.'
+                : `${describeSeason(league.activeTeams.length, league.settings?.games_per_team ?? 0)} ` +
+                  'It also stops players leaving their teams.'}
             </p>
           </>
         )}
@@ -249,7 +244,7 @@ function SeasonState({ run }: { run: Run }) {
 // ── Season ────────────────────────────────────────────────────────────────
 
 function SeasonSettings({ run }: { run: Run }) {
-  const { settings } = useLeague()
+  const { settings, activeTeams, schedule } = useLeague()
   const [name, setName] = useState('')
   const [games, setGames] = useState('12')
   const [buyIn, setBuyIn] = useState('50')
@@ -299,8 +294,13 @@ function SeasonSettings({ run }: { run: Run }) {
         <p className={`field__hint${Number(games) % 2 ? ' field__hint--bad' : ''}`} style={{ padding: 0 }}>
           {Number(games) % 2
             ? 'Has to be even — you play each opponent twice.'
-            : `${Number(games) / 2 || 0} rounds: one opponent a week, two games that week. ` +
-              'Takes effect when the schedule is built or reshuffled.'}
+            : `${describeSeason(
+                activeTeams.length, Number(games) || 0,
+                // The built schedule only describes the saved setting.
+                schedule.length && Number(games) === settings?.games_per_team
+                  ? new Set(schedule.map((m) => m.round)).size
+                  : undefined,
+              )} Takes effect when the schedule is built or reshuffled.`}
         </p>
         <div className="field">
           <label className="field__label" htmlFor="admin-email">Admin account (email)</label>

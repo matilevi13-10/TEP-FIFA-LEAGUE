@@ -1,16 +1,18 @@
-import { useLeague } from '../lib/league'
+import { describeSeason, useLeague } from '../lib/league'
 
 /**
  * The league rules, as agreed in the group chat. The schedule, the table and
  * the bracket enforce the ones they can; the rest are on trust.
  */
 export function Rules() {
-  const { activeTeams, settings } = useLeague()
+  const { activeTeams, settings, schedule } = useLeague()
   const n = activeTeams.length
   const games = settings?.games_per_team ?? 0
 
   const rules = [
-    `${games} games each: ${games / 2} rounds, one a week. Each round is one opponent, played twice that week — one home game each.`,
+    describeSeason(n, games, schedule.length ? new Set(schedule.map((m) => m.round)).size : undefined)
+      .replace(/ With \d+ teams, an odd number.*$/, ''),
+    'Each round is one opponent, played twice that week — one home game each.',
     '5-minute halves, World Class difficulty.',
     'Pick your own team for every game. The home team picks their team and the console.',
     'Tied after 90 minutes? Classic extra time. Still tied, and it stays a tie — a point each. Penalties never count toward the score.',
