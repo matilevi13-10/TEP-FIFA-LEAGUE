@@ -50,6 +50,20 @@ export function Admin() {
         </div>
       </div>
 
+      {league.schemaOutdated && (
+        <section className="section">
+          <div className="card card--accent" role="alert">
+            <div className="t-headline" style={{ color: 'var(--danger)' }}>The database needs updating</div>
+            <p className="t-foot muted" style={{ margin: 'var(--s-2) 0 0' }}>
+              It is still running the old league code, so schedules, ties and the playoffs
+              will come out wrong. In Supabase, open SQL Editor → New query, paste all of{' '}
+              <code>supabase/migrations/003_league_rules.sql</code> and run it. If nothing has
+              been played yet it rebuilds the schedule for you.
+            </p>
+          </div>
+        </section>
+      )}
+
       <NeedsAttention run={run} />
       <SeasonState run={run} />
       <SeasonSettings run={run} />
@@ -244,7 +258,7 @@ function SeasonState({ run }: { run: Run }) {
 // ── Season ────────────────────────────────────────────────────────────────
 
 function SeasonSettings({ run }: { run: Run }) {
-  const { settings, activeTeams, schedule } = useLeague()
+  const { settings, activeTeams, schedule, matches } = useLeague()
   const [name, setName] = useState('')
   const [games, setGames] = useState('12')
   const [buyIn, setBuyIn] = useState('50')
@@ -259,14 +273,24 @@ function SeasonSettings({ run }: { run: Run }) {
     setAdminEmail(settings.admin_email ?? '')
   }, [settings])
 
+  // A schedule built at the old length would otherwise sit there disagreeing
+  // with the setting. While nothing has been played it can simply be rebuilt;
+  // after that the fixtures are fixed, so the new length cannot take effect.
+  const lengthChanged = Number(games) !== settings?.games_per_team
+  const played = matches.some((m) => m.status === 'confirmed')
+  const rebuild = lengthChanged && schedule.length > 0 && !played && settings?.phase === 'league'
+
   const save = async () => {
     setBusy(true)
     await run(
-      () => adminUpdateSettings(
-        name, Number(games) || 0, Math.round((Number(buyIn) || 0) * 100),
-        settings?.playoff_size ?? null, adminEmail.trim() || null,
-      ),
-      'Season updated.',
+      async () => {
+        await adminUpdateSettings(
+          name, Number(games) || 0, Math.round((Number(buyIn) || 0) * 100),
+          settings?.playoff_size ?? null, adminEmail.trim() || null,
+        )
+        if (rebuild) await adminRegenerateSchedule()
+      },
+      rebuild ? 'Season updated — schedule rebuilt.' : 'Season updated.',
     )
     setBusy(false)
   }
@@ -300,7 +324,17 @@ function SeasonSettings({ run }: { run: Run }) {
                 schedule.length && Number(games) === settings?.games_per_team
                   ? new Set(schedule.map((m) => m.round)).size
                   : undefined,
-              )} Takes effect when the schedule is built or reshuffled.`}
+              )} ${
+                schedule.length === 0
+                  ? 'Used when the season starts.'
+                  : played
+                    ? lengthChanged
+                      ? "Results are already in, so the schedule can't be rebuilt — saving won't change it."
+                      : ''
+                    : lengthChanged
+                      ? 'Saving rebuilds the schedule.'
+                      : ''
+              }`}
         </p>
         <div className="field">
           <label className="field__label" htmlFor="admin-email">Admin account (email)</label>

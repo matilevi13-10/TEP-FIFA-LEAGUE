@@ -47,6 +47,12 @@ interface LeagueValue {
    * only possible while this is false.
    */
   seasonStarted: boolean
+  /**
+   * The database is missing a migration this app depends on (it still lacks
+   * the columns 003_league_rules.sql adds). Everything it computes — the
+   * schedule above all — comes from the old functions until that is run.
+   */
+  schemaOutdated: boolean
   refresh: () => Promise<void>
 }
 
@@ -209,17 +215,21 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
   const [requests, setRequests] = useState<TeamRequest[]>([])
   const [settings, setSettings] = useState<Settings | null>(null)
   const [loading, setLoading] = useState(true)
+  const [schemaOutdated, setSchemaOutdated] = useState(false)
   const pending = useRef<number | null>(null)
 
   const refresh = useCallback(async () => {
     if (!session) return
-    const [t, p, m, msg, r, s] = await Promise.all([
+    const [t, p, m, msg, r, s, probe] = await Promise.all([
       supabase.from('teams').select('*').order('name'),
       supabase.from('players').select('*').order('name'),
       supabase.from('matches').select('*').order('created_at', { ascending: false }),
       supabase.from('messages').select('*').order('created_at', { ascending: true }).limit(300),
       supabase.from('team_requests').select('*').eq('status', 'pending'),
       supabase.from('league_settings').select('*').eq('id', 1).maybeSingle(),
+      // Asking for the newest columns by name fails with 42703 (undefined
+      // column) on a database that has not had 003 run, even with no rows.
+      supabase.from('matches').select('leg, shootout_winner').limit(1),
     ])
     if (t.data) setTeams(t.data as Team[])
     if (p.data) setPlayers(p.data as Player[])
@@ -227,6 +237,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
     if (msg.data) setMessages(msg.data as Message[])
     if (r.data) setRequests(r.data as TeamRequest[])
     if (s.data) setSettings(s.data as Settings)
+    setSchemaOutdated(probe.error?.code === '42703')
     setLoading(false)
   }, [session])
 
@@ -318,9 +329,10 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
         Boolean(settings?.season_started_at) ||
         (settings?.phase ?? 'league') !== 'league' ||
         matches.some((m) => m.status === 'confirmed'),
+      schemaOutdated,
       refresh,
     }
-  }, [loading, teams, players, matches, messages, requests, settings, player, refresh])
+  }, [loading, teams, players, matches, messages, requests, settings, player, schemaOutdated, refresh])
 
   return <LeagueContext.Provider value={value}>{children}</LeagueContext.Provider>
 }
