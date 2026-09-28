@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../lib/auth'
-import { useLeague } from '../lib/league'
+import { fixtureLabel, needsShootout, useLeague } from '../lib/league'
 import {
   adminCreateTeam, adminDeleteMessage, adminDeletePlayer, adminRegenerateSchedule, adminSetSeasonStarted,
   adminDissolveTeam, adminRenamePlayer, adminResetPlayoffs, adminResolveMatch,
@@ -85,11 +85,13 @@ function MatchRow({ match, run }: { match: Match; run: Run }) {
   const league = useLeague()
   const [scoreA, setScoreA] = useState(match.score_a ?? 0)
   const [scoreB, setScoreB] = useState(match.score_b ?? 0)
+  const [pens, setPens] = useState<string | null>(match.shootout_winner)
   const [busy, setBusy] = useState(false)
 
   const teamA = league.teamById(match.team_a)
   const teamB = league.teamById(match.team_b)
   const submitter = league.teamById(match.submitted_by)
+  const shootout = needsShootout(match, league.matches, scoreA, scoreB)
 
   const act = async (work: () => Promise<unknown>, message: string) => {
     setBusy(true); await run(work, message); setBusy(false)
@@ -101,7 +103,7 @@ function MatchRow({ match, run }: { match: Match; run: Run }) {
         <div style={{ minWidth: 0 }}>
           <div className="t-headline">{teamA?.name ?? '—'} vs {teamB?.name ?? '—'}</div>
           <div className="t-caption dim">
-            {match.phase === 'playoff' ? 'Playoff' : 'League'} · sent by {submitter?.name ?? 'unknown'} ·{' '}
+            {fixtureLabel(match, league.matches)} · sent by {submitter?.name ?? 'unknown'} ·{' '}
             {timeAgo(match.created_at)}
           </div>
         </div>
@@ -120,9 +122,27 @@ function MatchRow({ match, run }: { match: Match; run: Run }) {
           style={{ textAlign: 'center', fontWeight: 700 }} />
       </div>
 
+      {shootout && (
+        <div className="field" style={{ marginBottom: 'var(--s-3)' }}>
+          <span className="field__label">Level — who won on penalties?</span>
+          <div className="row" style={{ gap: 'var(--s-2)' }}>
+            {[teamA, teamB].map((team) => team && (
+              <button key={team.id} type="button" style={{ flex: 1 }}
+                className={`btn btn--sm ${pens === team.id ? 'btn--primary' : 'btn--ghost'}`}
+                onClick={() => { haptic(); setPens(team.id) }}>
+                {team.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="row" style={{ gap: 'var(--s-2)' }}>
-        <button className="btn btn--primary btn--sm" disabled={busy} style={{ flex: 1 }}
-          onClick={() => act(() => adminResolveMatch(match.id, scoreA, scoreB, 'Settled by admin'), 'Result settled.')}>
+        <button className="btn btn--primary btn--sm" disabled={busy || (shootout && !pens)} style={{ flex: 1 }}
+          onClick={() => act(
+            () => adminResolveMatch(match.id, scoreA, scoreB, 'Settled by admin', shootout ? pens : null),
+            'Result settled.',
+          )}>
           Settle at {scoreA}–{scoreB}
         </button>
         <ConfirmButton className="btn btn--danger btn--sm" disabled={busy}
@@ -209,9 +229,15 @@ function SeasonState({ run }: { run: Run }) {
               onConfirm={() => set(true)}
             />
             <p className="field__hint" style={{ padding: 0 }}>
-              This builds the full schedule from the {league.activeTeams.length} teams
-              and {league.settings?.games_per_team ?? 0} games per team, and stops
-              players leaving their teams.
+              {(() => {
+                const n = league.activeTeams.length
+                const games = league.settings?.games_per_team ?? 0
+                return n < 2
+                  ? 'You need at least two teams to build a schedule.'
+                  : `${games} games per team: ${games / 2} rounds, one opponent a week, twice that week. ` +
+                    (games / 2 === n - 1 ? 'That is everyone once. ' : '') +
+                    'It also stops players leaving their teams.'
+              })()}
             </p>
           </>
         )}
@@ -225,7 +251,7 @@ function SeasonState({ run }: { run: Run }) {
 function SeasonSettings({ run }: { run: Run }) {
   const { settings } = useLeague()
   const [name, setName] = useState('')
-  const [games, setGames] = useState('10')
+  const [games, setGames] = useState('12')
   const [buyIn, setBuyIn] = useState('50')
   const [adminEmail, setAdminEmail] = useState('')
   const [busy, setBusy] = useState(false)
@@ -242,7 +268,7 @@ function SeasonSettings({ run }: { run: Run }) {
     setBusy(true)
     await run(
       () => adminUpdateSettings(
-        name, Number(games) || 1, Math.round((Number(buyIn) || 0) * 100),
+        name, Number(games) || 0, Math.round((Number(buyIn) || 0) * 100),
         settings?.playoff_size ?? null, adminEmail.trim() || null,
       ),
       'Season updated.',
@@ -270,6 +296,12 @@ function SeasonSettings({ run }: { run: Run }) {
               onChange={(e) => setBuyIn(e.target.value.replace(/[^\d.]/g, '').slice(0, 6))} />
           </div>
         </div>
+        <p className={`field__hint${Number(games) % 2 ? ' field__hint--bad' : ''}`} style={{ padding: 0 }}>
+          {Number(games) % 2
+            ? 'Has to be even — you play each opponent twice.'
+            : `${Number(games) / 2 || 0} rounds: one opponent a week, two games that week. ` +
+              'Takes effect when the schedule is built or reshuffled.'}
+        </p>
         <div className="field">
           <label className="field__label" htmlFor="admin-email">Admin account (email)</label>
           <input id="admin-email" className="input" type="email" autoCapitalize="none"
@@ -291,32 +323,22 @@ function SeasonSettings({ run }: { run: Run }) {
 function Playoffs({ run }: { run: Run }) {
   const league = useLeague()
   const { settings, activeTeams, matches } = league
-  const [size, setSize] = useState<number>(settings?.playoff_size ?? 8)
   const [busy, setBusy] = useState(false)
-
-  useEffect(() => { if (settings?.playoff_size) setSize(settings.playoff_size) }, [settings?.playoff_size])
 
   const started = settings?.phase !== 'league'
   const unsettled = matches.filter((m) => m.phase === 'league' && (m.status === 'pending' || m.status === 'disputed')).length
-  const tooFew = activeTeams.length < size
+  const n = activeTeams.length
+  // Mirrors admin_start_playoffs(): the bracket rounds up to a power of two and
+  // the spare places are byes for the top seeds.
+  let bracket = 1
+  while (bracket < n) bracket *= 2
+  const byes = bracket - n
+  const tooFew = n < 2
 
   return (
     <section className="section">
       <div className="eyebrow">Playoffs</div>
       <div className="card stack">
-        <div className="field">
-          <span className="field__label">Teams that qualify</span>
-          <div className="row" style={{ gap: 'var(--s-2)' }}>
-            {[4, 8, 16].map((option) => (
-              <button key={option} className={`btn ${size === option ? 'btn--primary' : 'btn--ghost'}`}
-                disabled={started} onClick={() => { haptic(); setSize(option) }}
-                style={{ flex: 1, minHeight: 48 }}>
-                {option}
-              </button>
-            ))}
-          </div>
-        </div>
-
         {started ? (
           <>
             <p className="muted t-foot" style={{ margin: 0 }}>
@@ -332,8 +354,14 @@ function Playoffs({ run }: { run: Run }) {
         ) : (
           <>
             <p className="muted t-foot" style={{ margin: 0 }}>
-              Starting the playoffs locks the league — no more league results after that. The top {size} seed
-              into the bracket.
+              All {n} teams make the playoffs, seeded by the final table.{' '}
+              {byes === 0
+                ? 'No byes needed.'
+                : byes === 1
+                  ? 'The #1 seed gets a first-round bye.'
+                  : `The top ${byes} seeds get first-round byes.`}{' '}
+              Ties are two legs on aggregate; the final is one game. Starting the
+              playoffs locks the league.
               {unsettled > 0 && (
                 <> <span style={{ color: 'var(--accent)' }}>
                   {unsettled} unconfirmed {unsettled === 1 ? 'result' : 'results'} will be voided.
@@ -342,13 +370,13 @@ function Playoffs({ run }: { run: Run }) {
             </p>
             {tooFew && (
               <p className="t-foot" style={{ margin: 0, color: 'var(--danger)' }} role="alert">
-                Only {activeTeams.length} active teams — you need {size}.
+                You need at least two active teams.
               </p>
             )}
             <ConfirmButton className="btn btn--primary btn--block"
-              label={`Start the ${size}-team playoffs`} confirmLabel="Confirm — lock the league"
+              label="Start the playoffs" confirmLabel="Confirm — lock the league"
               disabled={busy || tooFew}
-              onConfirm={async () => { setBusy(true); await run(() => adminStartPlayoffs(size), `${size}-team bracket is live.`); setBusy(false) }} />
+              onConfirm={async () => { setBusy(true); await run(() => adminStartPlayoffs(), 'The bracket is live.'); setBusy(false) }} />
           </>
         )}
       </div>

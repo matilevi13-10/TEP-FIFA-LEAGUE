@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useAuth } from '../lib/auth'
-import { useLeague } from '../lib/league'
+import { fixtureLabel, useLeague } from '../lib/league'
 import { cancelSubmission, confirmMatch, disputeMatch } from '../lib/actions'
 import { IncomingRequests } from '../components/IncomingRequests'
 import { TeamFormed } from '../components/TeamFormed'
 import { NextMatch } from '../components/NextMatch'
 import { TeamFormation } from '../components/TeamFormation'
 import { TeamNameEditor } from '../components/TeamNameEditor'
+import { Rules } from '../components/Rules'
 import { useToast } from '../components/Toast'
 import { IconCheck, IconTrophy } from '../components/Icons'
 import { haptic, money, ordinal, timeAgo } from '../lib/format'
@@ -31,8 +32,6 @@ export function Home() {
     (m) => m.status === 'scheduled' || m.status === 'pending' || m.status === 'disputed',
   ).length
   const champion = league.teamById(settings?.champion_team_id)
-  const qualifying = settings?.playoff_size ?? 0
-  const showCutline = settings?.phase === 'league' && qualifying > 0 && standings.length > qualifying
 
   const act = async (id: string, run: () => Promise<unknown>, message: string) => {
     setBusyId(id)
@@ -115,7 +114,7 @@ export function Home() {
             <div className="card">
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 'var(--s-3)' }}>
                 <Stat label="Rank" value={me ? ordinal(me.rank) : '—'} accent />
-                <Stat label="Record" value={me ? `${me.won}-${me.lost}` : '0-0'} />
+                <Stat label="Record" value={me ? `${me.won}-${me.drawn}-${me.lost}` : '0-0-0'} />
                 <Stat label="Points" value={me ? String(me.points) : '0'} />
               </div>
 
@@ -194,7 +193,7 @@ export function Home() {
             <div>
               <h1 className="t-title-2" style={{ margin: 0 }}>League Table</h1>
               <div className="t-foot dim">
-                {settings?.phase === 'league' ? 'Win 3 · Loss 0' : 'League phase closed'}
+                {settings?.phase === 'league' ? 'Win 3 · Draw 1 · Loss 0' : 'League phase closed'}
               </div>
             </div>
             <span className="pill pill--live">Live</span>
@@ -211,6 +210,7 @@ export function Home() {
                 <span>Team</span>
                 <span className="tbl__cell">P</span>
                 <span className="tbl__cell">W</span>
+                <span className="tbl__cell">D</span>
                 <span className="tbl__cell">L</span>
                 <span className="tbl__cell">GF</span>
                 <span className="tbl__cell">GA</span>
@@ -220,22 +220,22 @@ export function Home() {
 
               {standings.map((row) => {
                 const isMe = row.team_id === myTeam?.id
-                const atCutline = showCutline && row.rank === qualifying
                 return (
                   <div
                     key={row.team_id}
-                    className={`tbl__row${isMe ? ' tbl__row--me' : ''}${row.rank === 1 ? ' tbl__row--top' : ''}${atCutline ? ' tbl__row--cut' : ''}`}
+                    className={`tbl__row${isMe ? ' tbl__row--me' : ''}${row.rank === 1 ? ' tbl__row--top' : ''}`}
                   >
                     <span className="tbl__rank">{row.rank}</span>
                     <span style={{ minWidth: 0 }}>
                       <span className="tbl__name">{row.name}</span>
                       <span className="tbl__sub">
-                        {row.won}W-{row.lost}L · {row.goals_for}:{row.goals_against} ·{' '}
+                        {row.won}W-{row.drawn}D-{row.lost}L · {row.goals_for}:{row.goals_against} ·{' '}
                         {row.goal_difference > 0 ? '+' : ''}{row.goal_difference}
                       </span>
                     </span>
                     <span className="tbl__cell">{row.played}</span>
                     <span className="tbl__cell">{row.won}</span>
+                    <span className="tbl__cell">{row.drawn}</span>
                     <span className="tbl__cell">{row.lost}</span>
                     <span className="tbl__cell">{row.goals_for}</span>
                     <span className="tbl__cell">{row.goals_against}</span>
@@ -249,15 +249,13 @@ export function Home() {
             </div>
           )}
 
-          {showCutline && (
-            <p className="t-caption dim" style={{ margin: 'var(--s-2) var(--s-1) 0' }}>
-              The line is the playoff cut — top {qualifying} qualify.
-            </p>
-          )}
           <p className="t-caption dim" style={{ margin: 'var(--s-2) var(--s-1) 0' }}>
+            Everyone makes the playoffs{standings.length % 2 === 1 ? ' — #1 gets a first-round bye' : ''}.
             Level on points? Goal difference decides, then goals scored.
           </p>
         </section>
+
+        <Rules />
       </div>
     </div>
   )
@@ -284,6 +282,7 @@ function PendingCard({
   const theirScore = (mineFirst ? match.score_b : match.score_a) ?? 0
   const other = league.teamById(mineFirst ? match.team_b : match.team_a)
   const won = myScore > theirScore
+  const drawn = myScore === theirScore
 
   return (
     <div className="card card--accent">
@@ -291,10 +290,10 @@ function PendingCard({
         <div style={{ minWidth: 0 }}>
           <div className="t-headline">{other?.name ?? 'Unknown'} says:</div>
           <div className="t-caption dim">
-            {match.phase === 'playoff' ? 'Playoff game' : 'League game'} · {timeAgo(match.created_at)}
+            {fixtureLabel(match, league.matches)} · {timeAgo(match.created_at)}
           </div>
         </div>
-        <span className="pill pill--accent">{won ? 'You won' : 'You lost'}</span>
+        <span className="pill pill--accent">{won ? 'You won' : drawn ? 'Tie' : 'You lost'}</span>
       </div>
 
       <div className="center num" style={{ fontSize: '2.5rem', fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.1 }}>
@@ -302,6 +301,9 @@ function PendingCard({
       </div>
       <div className="center t-caption dim" style={{ marginBottom: 'var(--s-4)' }}>
         You · {other?.name ?? 'Them'}
+        {match.shootout_winner && (
+          <> · {match.shootout_winner === myTeamId ? 'you' : other?.name ?? 'they'} won on penalties</>
+        )}
       </div>
 
       <button className="btn btn--primary btn--block" disabled={busy} onClick={onConfirm}>

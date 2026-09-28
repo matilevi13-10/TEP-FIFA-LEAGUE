@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useLeague } from '../lib/league'
+import { fixtureLabel, isFinalRound, needsShootout, tieLegs, useLeague } from '../lib/league'
 import { submitLeagueResult, submitPlayoffResult } from '../lib/actions'
 import { ScoreStepper } from './ScoreStepper'
 import { useToast } from './Toast'
@@ -24,17 +24,41 @@ export function ScoreSheet({
   const toast = useToast()
   const [mine, setMine] = useState(0)
   const [theirs, setTheirs] = useState(0)
+  const [pens, setPens] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const drag = useSheetDrag(onClose)
 
   const mineFirst = fixture.team_a === myTeam.id
   const opponent = league.teamById(mineFirst ? fixture.team_b : fixture.team_a)
-  const level = mine === theirs
+  const them = opponent?.name ?? 'They'
+
+  // Penalties never touch the score, so any game can end level. When that
+  // leaves the final or the aggregate level, whoever won the shootout goes
+  // through, and it is recorded on its own.
+  const playoff = fixture.phase === 'playoff'
+  const final = playoff && isFinalRound(league.matches, fixture.round)
+  const otherLeg = playoff && !final
+    ? tieLegs(league.matches, fixture.round, fixture.slot).find((m) => m.leg !== fixture.leg)
+    : undefined
+  const earlier = otherLeg?.status === 'confirmed'
+    ? {
+        mine: (mineFirst ? otherLeg.score_a : otherLeg.score_b) ?? 0,
+        theirs: (mineFirst ? otherLeg.score_b : otherLeg.score_a) ?? 0,
+      }
+    : undefined
+  const aggMine = mine + (earlier?.mine ?? 0)
+  const aggTheirs = theirs + (earlier?.theirs ?? 0)
+  const shootout = needsShootout(
+    fixture, league.matches, mineFirst ? mine : theirs, mineFirst ? theirs : mine,
+  )
+  const blocked = shootout && pens === null
 
   const send = async () => {
     setBusy(true)
     try {
-      if (fixture.phase === 'playoff') await submitPlayoffResult(fixture.id, mine, theirs)
+      if (fixture.phase === 'playoff') {
+        await submitPlayoffResult(fixture.id, mine, theirs, shootout ? pens : null)
+      }
       else await submitLeagueResult(fixture.id, mine, theirs)
       haptic([10, 30, 10])
       toast(`Sent to ${opponent?.name ?? 'your opponent'} to confirm.`, 'good')
@@ -56,9 +80,7 @@ export function ScoreSheet({
           <div className="sheet__head">
             <div style={{ minWidth: 0 }}>
               <div className="t-headline truncate">vs {opponent?.name ?? 'Opponent'}</div>
-              <div className="t-caption dim">
-                {fixture.phase === 'playoff' ? 'Playoff' : `Round ${fixture.round}`}
-              </div>
+              <div className="t-caption dim">{fixtureLabel(fixture, league.matches)}</div>
             </div>
             <button
               className="btn btn--ghost btn--sm btn--icon"
@@ -84,22 +106,38 @@ export function ScoreSheet({
             className="center"
             style={{ minHeight: '2.5rem', marginTop: 'var(--s-4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           >
-            {level ? (
-              <span className="t-foot" style={{ color: 'var(--danger)' }} role="alert">
-                Games can't end level — play it out until somebody wins.
-              </span>
+            {shootout ? (
+              <div style={{ width: '100%' }}>
+                <div className="t-foot muted" style={{ marginBottom: 'var(--s-2)' }}>
+                  {final ? `Level at ${mine}–${theirs}` : `Level at ${aggMine}–${aggTheirs} on aggregate`}
+                  {' '}— the score stays a tie. Who won on penalties?
+                </div>
+                <div className="row" style={{ gap: 'var(--s-2)' }}>
+                  {[myTeam, opponent].map((team) => team && (
+                    <button key={team.id} type="button"
+                      className={`btn btn--sm ${pens === team.id ? 'btn--primary' : 'btn--ghost'}`}
+                      style={{ flex: 1 }} onClick={() => { haptic(); setPens(team.id) }}>
+                      {team.id === myTeam.id ? 'We did' : team.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ) : (
               <span className="t-foot muted">
                 {mine > theirs
-                  ? `You win ${mine}–${theirs}. ${opponent?.name ?? 'They'} confirms it.`
-                  : `${opponent?.name ?? 'They'} win ${theirs}–${mine}. They confirm it.`}
+                  ? `You win ${mine}–${theirs}.`
+                  : mine < theirs
+                    ? `${them} win ${theirs}–${mine}.`
+                    : `A ${mine}–${theirs} tie${playoff ? '' : ' — a point each'}.`}
+                {earlier && ` ${aggMine > aggTheirs ? 'You go' : `${them} go`} through ${Math.max(aggMine, aggTheirs)}–${Math.min(aggMine, aggTheirs)} on aggregate.`}
+                {` ${opponent?.name ?? 'Your opponent'} confirms it.`}
               </span>
             )}
           </div>
 
           <button
             className="btn btn--primary btn--block"
-            disabled={busy || level}
+            disabled={busy || blocked}
             onClick={send}
           >
             {busy ? 'Sending…' : 'Submit result'}

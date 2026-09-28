@@ -1,192 +1,88 @@
 -- ============================================================================
--- TEP FIFA LEAGUE — full schema (v2: player accounts + team formation)
+-- TEP FIFA LEAGUE — migration 003: the league rules
 --
--- Fresh install only. Run this in the Supabase SQL Editor on an empty project;
--- it drops and recreates everything it owns.
+-- Run this on a database that already has migration 002 (or was installed
+-- from the schema before these rules). It brings it in line with the rules:
+--   • The league is played in rounds, one a week: one opponent, two games,
+--     one home game each. games_per_team sets the length and must be even —
+--     12 games is 6 rounds, which with seven teams is everyone once.
+--   • A game still level after extra time is a tie. Win 3, draw 1, loss 0;
+--     level on points goes to goal difference, then goals scored.
+--   • Penalties never count toward the score. When a level final or a level
+--     aggregate goes to a shootout, the shootout winner is recorded on its own.
+--   • Every team makes the playoffs. Spare bracket places go to the top seeds
+--     as byes — with seven teams, only the #1 seed.
+--   • Playoff ties are two legs on aggregate until the final, which is one
+--     game. The higher seed is at home in the second leg and in the final.
+--     Home picks their team and the console.
 --
--- Already running v1 (team logins)? Do NOT run this — it would wipe your data.
--- Run supabase/migrations/002_player_accounts.sql instead.
+-- Safe on your live database: additive, wrapped in a transaction, re-runnable.
+-- Teams, players, results and chat all survive. If the season has started
+-- and nothing has been confirmed yet, the fixtures are rebuilt in the new
+-- weekly format; if results already exist, the schedule is left alone.
 --
--- Model: a player is the login. Players start unassigned in the pool, pair up
--- by mutual consent into a team of exactly two, and the team is what plays
--- matches and appears in the table.
+-- GENERATED FILE — edit supabase/schema.sql, then run:
+--   python3 supabase/migrations/build_003.py
 -- ============================================================================
 
-create extension if not exists pgcrypto with schema extensions;
+begin;
 
 -- ---------------------------------------------------------------------------
--- Teardown (idempotent re-runs)
+-- 1. Structure
 -- ---------------------------------------------------------------------------
-drop view   if exists public.standings cascade;
-drop table  if exists public.team_requests cascade;
-drop table  if exists public.messages cascade;
-drop table  if exists public.matches cascade;
-drop table  if exists public.team_secrets cascade;
-drop table  if exists public.players cascade;
-drop table  if exists public.league_settings cascade;
-drop table  if exists public.teams cascade;
--- Signatures that changed; create or replace cannot swap a function's arguments.
+
+alter table public.matches add column if not exists leg smallint not null default 1;
+alter table public.matches add column if not exists home_team uuid
+  references public.teams(id) on delete set null;
+alter table public.matches add column if not exists shootout_winner uuid
+  references public.teams(id) on delete set null;
+
+-- You play each opponent twice, so games per team is always even. Round an
+-- odd setting up rather than refuse to migrate.
+update public.league_settings set games_per_team = least(200, games_per_team + 1)
+ where games_per_team % 2 <> 0;
+update public.league_settings set games_per_team = 2 where games_per_team < 2;
+alter table public.league_settings drop constraint if exists league_settings_games_per_team_check;
+alter table public.league_settings add constraint league_settings_games_per_team_check
+  check (games_per_team between 2 and 200 and games_per_team % 2 = 0);
+
+alter table public.matches drop constraint if exists matches_leg_check;
+alter table public.matches add constraint matches_leg_check check (leg in (1, 2));
+
+alter table public.matches drop constraint if exists matches_status_check;
+alter table public.matches add constraint matches_status_check
+  check (status in ('scheduled','pending','confirmed','disputed','voided','bye'));
+
+-- Ties are allowed now.
+alter table public.matches drop constraint if exists no_drawn_results;
+alter table public.matches drop constraint if exists bye_is_playoff;
+alter table public.matches add constraint bye_is_playoff
+  check (status <> 'bye' or (phase = 'playoff' and team_b is null));
+
+drop index if exists public.matches_bracket_slot_idx;
+create unique index matches_bracket_slot_idx
+  on public.matches (round, slot, leg) where phase = 'playoff';
+
+alter table public.league_settings drop constraint if exists league_settings_playoff_size_check;
+alter table public.league_settings add constraint league_settings_playoff_size_check
+  check (playoff_size between 2 and 64);
+
+-- Existing fixtures were single games with no home side; call team_a home.
+update public.matches set home_team = team_a
+ where phase = 'league' and home_team is null;
+
+-- The table gains a drawn column, which create or replace cannot insert.
+drop view if exists public.standings;
+-- Everyone qualifies now, so the playoffs no longer take a size.
 drop function if exists public.admin_start_playoffs(int);
+-- These grew a shootout-winner argument.
 drop function if exists public.submit_playoff_result(uuid, int, int);
 drop function if exists public.admin_resolve_match(uuid, int, int, text);
 drop function if exists public.check_playoff_score(public.matches, int, int);
 
 -- ---------------------------------------------------------------------------
--- Tables
+-- 2. Functions, policies, grants (identical to schema.sql)
 -- ---------------------------------------------------------------------------
-
-create table public.teams (
-  id         uuid primary key default gen_random_uuid(),
-  name       text not null unique check (length(btrim(name)) between 1 and 40),
-  is_active  boolean not null default true,
-  paid       boolean not null default false,
-  created_at timestamptz not null default now()
-);
-
--- A player is the account: one row per person, created only when that person
--- signs themselves up. Nothing else can bring a player into existence.
-create table public.players (
-  id         uuid primary key default gen_random_uuid(),
-  user_id    uuid unique references auth.users(id) on delete set null,
-  -- Copied from the JWT at sign-up.
-  email      text,
-  name       text not null check (length(btrim(name)) between 1 and 40),
-  team_id    uuid references public.teams(id) on delete set null,
-  slot       smallint check (slot in (1, 2)),
-  is_admin   boolean not null default false,
-  -- is_active=false → an admin-only login: never in the pool, never on a team.
-  is_active  boolean not null default true,
-  created_at timestamptz not null default now(),
-  -- Either on a team in a numbered slot, or in the pool. Never half of each.
-  constraint team_and_slot_together check ((team_id is null) = (slot is null)),
-  -- Two players per team, one per slot. Postgres treats nulls as distinct, so
-  -- the whole pool can sit here without colliding.
-  unique (team_id, slot)
-);
-
--- Names are the sign-in handle, so they are unique case-insensitively.
-create unique index players_name_key on public.players (lower(btrim(name)));
-create index players_team_idx on public.players (team_id);
-
--- Teammate requests. One unteamed player asks another; the team exists only
--- once the second accepts. There is no other way to form a team.
-create table public.team_requests (
-  id                 uuid primary key default gen_random_uuid(),
-  from_player        uuid not null references public.players(id) on delete cascade,
-  to_player          uuid not null references public.players(id) on delete cascade,
-  proposed_team_name text check (proposed_team_name is null
-                                 or length(btrim(proposed_team_name)) between 1 and 40),
-  status             text not null default 'pending'
-                     check (status in ('pending','accepted','declined','cancelled','expired')),
-  created_at         timestamptz not null default now(),
-  responded_at       timestamptz,
-  constraint different_players check (from_player <> to_player)
-);
-
--- One live request out per player, so the pool cannot be spammed and "your
--- outgoing request" is always a single, cancellable thing.
-create unique index team_requests_one_outgoing
-  on public.team_requests (from_player) where status = 'pending';
-create index team_requests_inbox_idx
-  on public.team_requests (to_player) where status = 'pending';
-
-create table public.league_settings (
-  id                  int primary key default 1 check (id = 1),
-  season_name         text not null default 'Season 1',
-  -- Always even: you play each opponent twice in the week you meet, so 12
-  -- games is 6 rounds.
-  games_per_team      int  not null default 12 check (games_per_team between 2 and 200 and games_per_team % 2 = 0),
-  buy_in_cents        int  not null default 5000 check (buy_in_cents >= 0),
-  -- Whoever signs up with this address gets the admin controls.
-  admin_email         text not null default 'matilevi13@gmail.com',
-  -- Set when the admin opens the season. Until then teams are still forming and
-  -- either member may walk away; afterwards team changes are admin-only.
-  season_started_at   timestamptz,
-  -- Everyone makes the playoffs, so this is just the number of teams seeded.
-  playoff_size        int  check (playoff_size between 2 and 64),
-  phase               text not null default 'league' check (phase in ('league','playoffs','complete')),
-  champion_team_id    uuid references public.teams(id) on delete set null,
-  playoffs_started_at timestamptz,
-  updated_at          timestamptz not null default now()
-);
-
-create table public.matches (
-  id            uuid primary key default gen_random_uuid(),
-  phase         text not null check (phase in ('league','playoff')),
-  -- League: round is the week and slot the pairing within it. Playoffs: the
-  -- bracket coordinates of the tie.
-  round         int,
-  slot          int,
-  -- Each pairing is two games: two a week in the league, two legs of a playoff
-  -- tie. A playoff final is a single game, so it only has leg 1.
-  leg           smallint not null default 1 check (leg in (1, 2)),
-  team_a        uuid references public.teams(id) on delete cascade,
-  team_b        uuid references public.teams(id) on delete cascade,
-  -- Home picks their team and the console.
-  home_team     uuid references public.teams(id) on delete set null,
-  seed_a        int,
-  seed_b        int,
-  score_a       int check (score_a >= 0 and score_a <= 99),
-  score_b       int check (score_b >= 0 and score_b <= 99),
-  -- Null on a confirmed draw.
-  winner_id     uuid references public.teams(id) on delete set null,
-  -- Penalties never touch the score: a game level after extra time goes down
-  -- as a tie. When that tie has to settle a playoff tie (the final, or a level
-  -- aggregate), this records who won the shootout.
-  shootout_winner uuid references public.teams(id) on delete set null,
-  -- 'bye' is a first-round playoff slot with nobody to play: team_a goes
-  -- straight through.
-  status        text not null default 'pending'
-                check (status in ('scheduled','pending','confirmed','disputed','voided','bye')),
-  submitted_by  uuid references public.teams(id) on delete set null,
-  confirmed_by  uuid references public.teams(id) on delete set null,
-  admin_note    text,
-  created_at    timestamptz not null default now(),
-  confirmed_at  timestamptz,
-  updated_at    timestamptz not null default now(),
-  -- Empty bracket slots are legitimately (null, null); only reject a team
-  -- drawn against itself.
-  constraint different_teams check (team_a is null or team_b is null or team_a <> team_b),
-  constraint league_has_both_teams check (phase <> 'league' or (team_a is not null and team_b is not null)),
-  -- A league game tied after extra time stays a tie. Playoff games that decide
-  -- something are held to a winner by the RPCs (check_playoff_score), since
-  -- whether a level score is allowed depends on the other leg.
-  constraint bye_is_playoff check (status <> 'bye' or (phase = 'playoff' and team_b is null))
-);
-
-create unique index matches_bracket_slot_idx
-  on public.matches (round, slot, leg) where phase = 'playoff';
-create index matches_team_a_idx  on public.matches (team_a);
-create index matches_team_b_idx  on public.matches (team_b);
-create index matches_status_idx  on public.matches (status);
-
--- One public room. `kind` separates what players type from what the league
--- posts on their behalf.
-create table public.messages (
-  id         uuid primary key default gen_random_uuid(),
-  kind       text not null default 'chat' check (kind in ('chat','result','taunt')),
-  author_id  uuid references public.players(id) on delete set null,
-  -- Denormalised so a message still reads correctly after a player is renamed,
-  -- leaves a team, or is deleted.
-  author_name text,
-  team_name   text,
-  body       text check (body is null or length(btrim(body)) between 1 and 500),
-  -- result and taunt messages hang off the match they describe
-  match_id   uuid references public.matches(id) on delete cascade,
-  -- clock_timestamp(), not now(): a result and its taunt can land in the same
-  -- transaction, and now() would give them identical timestamps to sort by.
-  created_at timestamptz not null default clock_timestamp(),
-  constraint chat_needs_body   check (kind <> 'chat'  or (body is not null and author_id is not null)),
-  constraint taunt_needs_match check (kind <> 'taunt' or match_id is not null),
-  constraint result_needs_match check (kind <> 'result' or match_id is not null)
-);
-
-create index messages_created_idx on public.messages (created_at desc);
--- One taunt per match, enforced in the database rather than by hoping.
-create unique index messages_one_taunt_per_match
-  on public.messages (match_id) where kind = 'taunt';
-create unique index messages_one_result_per_match
-  on public.messages (match_id) where kind = 'result';
 
 -- ---------------------------------------------------------------------------
 -- Identity helpers
@@ -266,13 +162,19 @@ alter table public.team_requests   enable row level security;
 alter table public.league_settings enable row level security;
 alter table public.matches         enable row level security;
 
-create policy teams_read    on public.teams           for select to authenticated using (true);
-create policy players_read  on public.players         for select to authenticated using (true);
+drop policy if exists teams_read on public.teams;
+create policy teams_read on public.teams           for select to authenticated using (true);
+drop policy if exists players_read on public.players;
+create policy players_read on public.players         for select to authenticated using (true);
+drop policy if exists settings_read on public.league_settings;
 create policy settings_read on public.league_settings for select to authenticated using (true);
-create policy matches_read  on public.matches         for select to authenticated using (true);
+drop policy if exists matches_read on public.matches;
+create policy matches_read on public.matches         for select to authenticated using (true);
+drop policy if exists messages_read on public.messages;
 create policy messages_read on public.messages        for select to authenticated using (true);
 
 -- A player sees only the requests they sent or received.
+drop policy if exists requests_read on public.team_requests;
 create policy requests_read on public.team_requests for select to authenticated
   using (from_player = public.current_player_id() or to_player = public.current_player_id());
 
@@ -1690,19 +1592,27 @@ end;
 $$;
 
 -- ---------------------------------------------------------------------------
--- Seed: just the league row. The admin account creates itself the moment
--- someone signs up with the address in league_settings.admin_email.
+-- 3. Rebuild an unplayed schedule in the weekly format
 -- ---------------------------------------------------------------------------
 
-insert into public.league_settings (id) values (1) on conflict (id) do nothing;
+do $$
+declare made int;
+begin
+  if (select season_started_at is not null and phase = 'league'
+        from public.league_settings where id = 1)
+     and not exists (select 1 from public.matches where status = 'confirmed') then
+    made := public.generate_schedule();
+    raise notice 'Nothing had been played yet, so the schedule was rebuilt: % games.', made;
+  elsif exists (select 1 from public.matches where phase = 'league' and status = 'confirmed') then
+    raise notice 'Results already exist, so the current schedule was kept as it is.';
+  end if;
+end $$;
+
+commit;
 
 do $$
-declare who text;
 begin
-  select admin_email into who from public.league_settings where id = 1;
   raise notice '=================================================';
-  raise notice ' Ready. Sign up with % to get the admin controls.', who;
-  raise notice ' Keep "Confirm email" OFF in Supabase Auth.';
+  raise notice ' Migration 003 complete — the league rules are in.';
   raise notice '=================================================';
-end;
-$$;
+end $$;

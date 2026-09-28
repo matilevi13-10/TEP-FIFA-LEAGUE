@@ -10,7 +10,7 @@ do $$ begin
     raise exception 'TEST FAILED: non-admin paired players';
   exception when sqlstate 'P0001' then raise notice 'ok: admin_create_team blocked'; end;
   begin
-    perform admin_start_playoffs(4);
+    perform admin_start_playoffs();
     raise exception 'TEST FAILED: non-admin started playoffs';
   exception when sqlstate 'P0001' then raise notice 'ok: admin_start_playoffs blocked'; end;
   begin

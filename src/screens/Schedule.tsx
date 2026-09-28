@@ -21,7 +21,7 @@ export function Schedule() {
         <div className="t-foot dim">
           {schedule.length === 0
             ? 'No fixtures yet — the admin starts the season.'
-            : `${schedule.length} fixtures across ${rounds.length} rounds`}
+            : `${schedule.length} games over ${rounds.length} weeks — one opponent a week, twice`}
         </div>
       </div>
 
@@ -55,13 +55,13 @@ export function Schedule() {
           ) : (
             rounds.map((round) => (
               <section className="section" key={round} style={{ marginTop: 'var(--s-5)' }}>
-                <div className="eyebrow">Round {round}</div>
+                <div className="eyebrow">Week {round}</div>
                 <div className="card card--flat">
                   {schedule
                     .filter((m) => (m.round ?? 0) === round)
                     .map((m, i) => (
                       <Fixture key={m.id} match={m} highlight={myTeam?.id} first={i === 0}
-                        showRound={false} />
+                        showWeek={false} />
                     ))}
                 </div>
               </section>
@@ -73,20 +73,22 @@ export function Schedule() {
   )
 }
 
-function Fixture({ match, highlight, first, showRound = true }:
-  { match: Match; highlight?: string; first: boolean; showRound?: boolean }) {
+function Fixture({ match, highlight, first, showWeek = true }:
+  { match: Match; highlight?: string; first: boolean; showWeek?: boolean }) {
   const league = useLeague()
   const a = league.teamById(match.team_a)
   const b = league.teamById(match.team_b)
   const played = match.status === 'confirmed'
   const mine = highlight && (match.team_a === highlight || match.team_b === highlight)
 
-  const label =
+  const home = league.teamById(match.home_team)
+  const when = showWeek ? `Week ${match.round} · Game ${match.leg}` : `Game ${match.leg}`
+  const state =
     match.status === 'pending' ? 'Awaiting confirmation'
       : match.status === 'disputed' ? 'Disputed'
       : match.status === 'voided' ? 'Voided'
-      : played ? null
-      : showRound ? `Round ${match.round}` : null
+      : null
+  const label = [when, home && `${home.name} home`, state].filter(Boolean).join(' · ')
 
   return (
     <div
@@ -107,7 +109,7 @@ function Fixture({ match, highlight, first, showRound = true }:
             {b?.name ?? 'TBC'}
           </span>
         </div>
-        {label && <div className="t-caption dim">{label}</div>}
+        <div className="t-caption dim truncate">{label}</div>
       </div>
       <div className="num t-headline" style={{ flexShrink: 0, color: played ? 'var(--text)' : 'var(--text-3)' }}>
         {played ? `${match.score_a}–${match.score_b}` : '–'}

@@ -1,4 +1,4 @@
-import { useLeague } from '../lib/league'
+import { tieResult, useLeague } from '../lib/league'
 import { IconTrophy } from '../components/Icons'
 import { money, roundName } from '../lib/format'
 import type { Match } from '../lib/types'
@@ -33,7 +33,7 @@ export function Bracket() {
           <div>
             <h1 className="t-title" style={{ margin: 0 }}>Bracket</h1>
             <div className="t-foot dim">
-              {settings?.playoff_size}-team single elimination · winner takes {money(potCents)}
+              {settings?.playoff_size} teams · two legs on aggregate, one-game final · winner takes {money(potCents)}
             </div>
           </div>
           {settings?.phase === 'playoffs' && <span className="pill pill--live">Live</span>}
@@ -53,12 +53,15 @@ export function Bracket() {
 
         <div className="bracket">
           {rounds.map((round) => {
-            const inRound = playoffMatches
-              .filter((m) => m.round === round)
-              .sort((a, b) => (a.slot ?? 0) - (b.slot ?? 0))
+            // One tie per slot, holding its one or two legs.
+            const ties = new Map<number, Match[]>()
+            for (const m of playoffMatches.filter((m) => m.round === round)) {
+              ties.set(m.slot ?? 0, [...(ties.get(m.slot ?? 0) ?? []), m].sort((a, b) => a.leg - b.leg))
+            }
+            const inRound = [...ties.entries()].sort(([a], [b]) => a - b).map(([, legs]) => legs)
 
             // Pair adjacent slots so the connector can draw a single riser.
-            const pairs: Match[][] = []
+            const pairs: Match[][][] = []
             for (let i = 0; i < inRound.length; i += 2) pairs.push(inRound.slice(i, i + 2))
 
             return (
@@ -69,9 +72,9 @@ export function Bracket() {
                     key={index}
                     className={`bracket__pair${pair.length === 2 ? ' bracket__pair--two' : ''}`}
                   >
-                    {pair.map((match) => (
-                      <div className="bracket__slot" key={match.id}>
-                        <Matchup match={match} myTeamId={league.myTeam?.id} />
+                    {pair.map((legs) => (
+                      <div className="bracket__slot" key={legs[0].id}>
+                        <Matchup legs={legs} myTeamId={league.myTeam?.id} />
                       </div>
                     ))}
                   </div>
@@ -82,46 +85,54 @@ export function Bracket() {
         </div>
 
         <p className="t-caption dim" style={{ margin: 'var(--s-3) var(--s-1) 0' }}>
-          Swipe across to follow the bracket. Seeds come from the final league table.
+          Swipe across to follow the bracket. Seeds come from the final league table;
+          the higher seed hosts the second leg and the final.
         </p>
       </section>
     </div>
   )
 }
 
-function Matchup({ match, myTeamId }: { match: Match; myTeamId?: string }) {
+function Matchup({ legs, myTeamId }: { legs: Match[]; myTeamId?: string }) {
   const league = useLeague()
-  const teamA = league.teamById(match.team_a)
-  const teamB = league.teamById(match.team_b)
-  const settled = match.status === 'confirmed'
-  const mine = myTeamId && (match.team_a === myTeamId || match.team_b === myTeamId)
+  const first = legs[0]
+  const teamA = league.teamById(first.team_a)
+  const teamB = league.teamById(first.team_b)
+  const bye = first.status === 'bye'
+  const result = tieResult(legs)
+  const settled = result.winner !== null
+  const mine = myTeamId && (first.team_a === myTeamId || first.team_b === myTeamId)
 
   const sideClass = (isTeamA: boolean) => {
-    if (!settled || match.winner_id === null) return ''
-    const id = isTeamA ? match.team_a : match.team_b
-    return id === match.winner_id ? ' matchup__side--won' : ' matchup__side--lost'
+    if (!settled) return ''
+    const id = isTeamA ? first.team_a : first.team_b
+    return id === result.winner ? ' matchup__side--won' : ' matchup__side--lost'
   }
 
+  const legLine = legs.length === 2
+    ? legs
+        .map((m) => `Leg ${m.leg} ${m.status === 'confirmed' ? `${m.score_a}–${m.score_b}` : 'to play'}`)
+        .join(' · ') + (result.onPenalties ? ' · won on pens' : '')
+    : result.onPenalties ? 'Won on penalties' : null
+
   const note =
-    match.status === 'pending'
-      ? 'Awaiting confirmation'
-      : match.status === 'disputed'
-        ? 'Disputed — admin to settle'
-        : match.team_a && match.team_b
-          ? 'Not played yet'
-          : 'Waiting on the round before'
+    bye ? 'Bye — straight through'
+      : legs.some((m) => m.status === 'disputed') ? 'Disputed — admin to settle'
+      : legs.some((m) => m.status === 'pending') ? 'Awaiting confirmation'
+      : !first.team_a || !first.team_b ? 'Waiting on the round before'
+      : legLine ?? (settled ? null : 'Not played yet')
 
   return (
     <div className={`matchup${mine && !settled ? ' matchup--live' : ''}${settled ? ' matchup--done' : ''}`}>
       <Side
-        seed={match.seed_a} name={teamA?.name} score={match.score_a}
-        highlight={match.team_a === myTeamId} className={sideClass(true)}
+        seed={first.seed_a} name={teamA?.name} score={result.confirmed ? result.aggA : null}
+        highlight={first.team_a === myTeamId} className={sideClass(true)}
       />
       <Side
-        seed={match.seed_b} name={teamB?.name} score={match.score_b}
-        highlight={match.team_b === myTeamId} className={sideClass(false)}
+        seed={first.seed_b} name={bye ? 'Bye' : teamB?.name} score={result.confirmed ? result.aggB : null}
+        highlight={first.team_b === myTeamId} className={sideClass(false)}
       />
-      {!settled && <div className="matchup__foot"><span>{note}</span></div>}
+      {note && <div className="matchup__foot"><span>{note}</span></div>}
     </div>
   )
 }

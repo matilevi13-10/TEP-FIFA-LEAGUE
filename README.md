@@ -4,15 +4,24 @@ A 2v2 FIFA league tracker for one private group. Teams of two, $50 a team, winne
 of the playoff bracket takes the pot. Built to be used from a phone, on the couch,
 mid-argument about whether that goal counted.
 
-- **Phase 1 — League.** Starting the season generates the fixtures: repeated
-  round-robin cycles, shuffled, so everyone plays everyone once before anyone
-  plays anyone twice, capped at the games-per-team setting. Each team sees its
-  Next Match and enters the score against that fixture — there is no free-form
-  match creation. **Win 3, loss 0 — there are no draws.** A level score cannot be submitted, cannot be settled by an
-  admin, and cannot exist as a confirmed row in the database. Sorted on points,
-  then goal difference, then goals scored. The table is the home page.
-- **Phase 2 — Playoffs.** The admin locks the league and seeds the top 4, 8 or 16
-  into a single-elimination bracket. Whoever wins the final takes the pot.
+- **Phase 1 — League.** Starting the season generates the fixtures in rounds,
+  one a week: each round is one opponent, played twice that week, one home game
+  each. Games per team (an admin setting, always even) sets the length — 12
+  games is 6 rounds, which with seven teams is everyone once over seven weeks,
+  each team sitting one week out. The home team picks their team and the console. Each team sees its Next
+  Match and enters the score against that fixture — there is no free-form match
+  creation. **Win 3, draw 1, loss 0** — a game still level after classic extra
+  time is a tie. Sorted on points, then goal difference, then goals scored. The
+  table is the home page.
+- **Phase 2 — Playoffs.** Everyone makes it. The admin locks the league and
+  seeds every team into a bracket rounded up to a power of two; the spare
+  places are first-round byes for the top seeds (with seven teams, just #1).
+  Ties are two legs on aggregate, the higher seed at home in the second leg;
+  the final is one game. Penalties never count toward the score: a level final
+  or aggregate stays a tie on the scoresheet, and the shootout winner is
+  recorded separately to decide who goes through. Whoever wins the final takes
+  the pot.
+- **The rules** are on the home page under the table.
 - **Every result needs two signatures.** The winning team submits, the opponent
   confirms. Nothing touches the table or the bracket until it is
   confirmed. Anything disputed parks itself for the admin.
@@ -34,10 +43,20 @@ Make a project at [supabase.com](https://supabase.com). Free tier is plenty.
 **New project:** paste all of [`supabase/schema.sql`](supabase/schema.sql) into
 **SQL Editor → New query** and run it.
 
-**Already running an older version:** run
-[`supabase/migrations/002_accounts_and_chat.sql`](supabase/migrations/002_accounts_and_chat.sql)
-instead. It is additive, wrapped in a transaction and re-runnable, and it keeps
-your teams, matches and season.
+**Already running an older version:** run the migrations you have not run yet,
+in order, instead:
+
+1. [`002_accounts_and_chat.sql`](supabase/migrations/002_accounts_and_chat.sql) —
+   only if you are still on the original team-PIN schema.
+2. [`003_league_rules.sql`](supabase/migrations/003_league_rules.sql) — the
+   weekly rounds, ties, shootouts, and the everyone-qualifies playoffs.
+
+Both are additive, wrapped in a transaction and re-runnable, and keep your
+teams, matches and season. 003 rebuilds the schedule in the weekly format only
+if the season has started and nothing has been confirmed yet.
+
+**Run the SQL before deploying the app.** The app expects the new columns and
+functions, so a deploy that lands before the migration will misbehave.
 
 ### 3. Two dashboard settings
 
@@ -126,18 +145,20 @@ fallback.
 The client never writes to a table. `teams`, `players`, `matches`, `messages` and
 `league_settings` are readable by any signed-in player and writable by nobody.
 Everything goes through `SECURITY DEFINER` RPCs that enforce the rules
-server-side: the losing team cannot submit, you cannot confirm your own result,
-playoff games cannot end level, nobody plays more games than the season allows,
-and the league locks the moment the playoffs start.
+server-side: you cannot confirm your own result, a level playoff final or
+aggregate needs a shootout winner, a second leg waits for the first, and the
+league locks the moment the playoffs start.
 
 ### The bracket
 
 `admin_start_playoffs` builds the whole bracket at once — round one gets the real
-seedings (1v8, 4v5, 3v6, 2v7, so the top two can only meet in the final), later
-rounds get empty slots. A trigger advances each confirmed winner into its parent
-slot and crowns the champion when the final lands. If the admin voids or rewrites
-a result that had already advanced somebody, `clear_from` walks up the bracket and
-wipes everything downstream of it.
+seedings (1v8, 4v5, 3v6, 2v7, so the top two can only meet in the final), with a
+`bye` row wherever the lower seed does not exist, and later rounds get empty
+slots. Each tie is two rows (`leg` 1 and 2) sharing a `(round, slot)`; the final
+is one. Once both legs are confirmed, a trigger advances the aggregate winner
+into its parent slot, and the final crowns the champion. If the admin voids or
+rewrites a result that had already advanced somebody, `clear_from` walks up the
+bracket and wipes everything downstream of it.
 
 ### Chat, results and taunts
 
@@ -166,10 +187,10 @@ brew install postgresql@16
 ```
 
 It plays a full season — sign-ups, username collisions, placeholder claims, team
-creation, submissions, confirmations, disputes, admin resolutions, an 8-team
-bracket through to a champion, voiding a confirmed semi-final and watching the
-bracket rebuild, chat, taunts — and asserts row level security actually holds for
-a normal player.
+creation, the weekly schedule, submissions, ties, confirmations, disputes, admin
+resolutions, a 7-team bracket with a bye through two-leg ties to a champion,
+voiding a semi-final leg and watching the bracket rebuild, chat, taunts — and
+asserts row level security actually holds for a normal player.
 
 To check the migration lands in the same place as a fresh install, the suite is
 also run against a migrated database during development.
@@ -191,9 +212,10 @@ supabase/
 amplify.yml   build config
 ```
 
-`supabase/migrations/002_accounts_and_chat.sql` is generated from `schema.sql` so
+`supabase/migrations/003_league_rules.sql` is generated from `schema.sql` so
 the two cannot drift. After editing the schema, run
-`python3 supabase/migrations/build_002.py`.
+`python3 supabase/migrations/build_003.py`. `002` is frozen: its structure
+section predates 003, so it is no longer regenerated.
 
 ## Notes
 

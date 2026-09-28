@@ -1,6 +1,7 @@
 export type Phase = 'league' | 'playoffs' | 'complete'
 export type MatchPhase = 'league' | 'playoff'
-export type MatchStatus = 'scheduled' | 'pending' | 'confirmed' | 'disputed' | 'voided'
+/** 'bye' is a first-round playoff slot with nobody to play — team_a goes through. */
+export type MatchStatus = 'scheduled' | 'pending' | 'confirmed' | 'disputed' | 'voided' | 'bye'
 export type MessageKind = 'chat' | 'result' | 'taunt'
 export type RequestStatus = 'pending' | 'accepted' | 'declined' | 'cancelled' | 'expired'
 
@@ -49,15 +50,26 @@ export interface Message {
 export interface Match {
   id: string
   phase: MatchPhase
+  /** League: the week. Playoffs: the bracket round. */
   round: number | null
   slot: number | null
+  /** Game 1 or 2 of the week's pairing, or leg 1 or 2 of a playoff tie. A final has only leg 1. */
+  leg: 1 | 2
   team_a: string | null
   team_b: string | null
+  /** Picks their team and the console. */
+  home_team: string | null
   seed_a: number | null
   seed_b: number | null
   score_a: number | null
   score_b: number | null
+  /** Null on a draw. */
   winner_id: string | null
+  /**
+   * Penalties never touch the score. When a level final or a level aggregate
+   * goes to a shootout, this is who won it.
+   */
+  shootout_winner: string | null
   status: MatchStatus
   submitted_by: string | null
   confirmed_by: string | null
@@ -70,12 +82,14 @@ export interface Match {
 export interface Settings {
   id: number
   season_name: string
+  /** Always even — two games per opponent, so 12 games is 6 rounds. */
   games_per_team: number
   buy_in_cents: number
   /** Whoever signs in with this address gets the admin controls. */
   admin_email: string
   /** Null until the admin opens the season. */
   season_started_at: string | null
+  /** Everyone qualifies, so this is the number of teams seeded. */
   playoff_size: number | null
   phase: Phase
   champion_team_id: string | null
@@ -88,6 +102,7 @@ export interface Standing {
   name: string
   played: number
   won: number
+  drawn: number
   lost: number
   goals_for: number
   goals_against: number

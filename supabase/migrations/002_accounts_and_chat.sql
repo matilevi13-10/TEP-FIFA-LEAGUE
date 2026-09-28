@@ -36,8 +36,8 @@
 --     • Confirm email:            OFF   (required — accounts must work at once)
 --     • Allow new users to sign up: ON
 --
--- GENERATED FILE — edit supabase/schema.sql, then run:
---   python3 supabase/migrations/build_002.py
+-- FROZEN — this was generated from an earlier schema.sql. Run it, then run
+-- 003_league_rules.sql. Schema changes go into 003 via build_003.py.
 -- ============================================================================
 
 begin;

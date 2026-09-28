@@ -2,6 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import type { ReactNode } from 'react'
 import { supabase } from './supabase'
 import { useAuth } from './auth'
+import { roundName } from './format'
 import type { Match, Message, Player, Settings, Standing, Team, TeamRequest } from './types'
 
 interface LeagueValue {
@@ -53,7 +54,7 @@ const LeagueContext = createContext<LeagueValue | null>(null)
 
 /**
  * Mirrors the `standings` view in schema.sql: confirmed league games only,
- * three points a win, ordered by points, then goal difference, then goals
+ * win 3, draw 1, loss 0, ordered by points, then goal difference, then goals
  * scored, then name. Computed here too so the table reacts the instant
  * realtime fires.
  */
@@ -62,7 +63,7 @@ export function computeStandings(teams: Team[], matches: Match[]): Standing[] {
   for (const team of teams) {
     if (!team.is_active) continue
     table.set(team.id, {
-      team_id: team.id, name: team.name, played: 0, won: 0, lost: 0,
+      team_id: team.id, name: team.name, played: 0, won: 0, drawn: 0, lost: 0,
       goals_for: 0, goals_against: 0, goal_difference: 0, points: 0, rank: 0,
     })
   }
@@ -80,8 +81,8 @@ export function computeStandings(teams: Team[], matches: Match[]): Standing[] {
       row.played += 1
       row.goals_for += gf
       row.goals_against += ga
-      // No draws: every confirmed result is a win for somebody.
       if (gf > ga) { row.won += 1; row.points += 3 }
+      else if (gf === ga) { row.drawn += 1; row.points += 1 }
       else row.lost += 1
     }
   }
@@ -99,11 +100,75 @@ export function computeStandings(teams: Team[], matches: Match[]): Standing[] {
   return rows
 }
 
+/** Week (or bracket round), then pairing, then game 1 before game 2. */
+export const bySchedule = (a: Match, b: Match) =>
+  (a.round ?? 0) - (b.round ?? 0) || (a.slot ?? 0) - (b.slot ?? 0) || a.leg - b.leg
+
 /** Every league fixture involving a team, in schedule order. */
 export function fixturesFor(matches: Match[], teamId: string): Match[] {
   return matches
     .filter((m) => m.phase === 'league' && (m.team_a === teamId || m.team_b === teamId))
-    .sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.slot ?? 0) - (b.slot ?? 0))
+    .sort(bySchedule)
+}
+
+/** The games of one playoff tie, leg 1 first. */
+export function tieLegs(matches: Match[], round: number | null, slot: number | null): Match[] {
+  return matches
+    .filter((m) => m.phase === 'playoff' && m.round === round && m.slot === slot)
+    .sort((a, b) => a.leg - b.leg)
+}
+
+/** Mirrors playoff_is_final(): the last round is the final, played as one game. */
+export function isFinalRound(matches: Match[], round: number | null): boolean {
+  return !matches.some((m) => m.phase === 'playoff' && (m.round ?? 0) > (round ?? 0))
+}
+
+/** "Week 3 · Game 1 of 2", "Semi-finals · Leg 2 of 2", "Final". */
+export function fixtureLabel(match: Match, matches: Match[]): string {
+  if (match.phase === 'league') return `Week ${match.round} · Game ${match.leg} of 2`
+  const total = Math.max(0, ...matches.filter((m) => m.phase === 'playoff').map((m) => m.round ?? 0))
+  const name = roundName(match.round ?? 0, total)
+  return isFinalRound(matches, match.round) ? name : `${name} · Leg ${match.leg} of 2`
+}
+
+export interface TieResult {
+  /** Aggregate over the confirmed legs, from team_a's and team_b's side. */
+  aggA: number
+  aggB: number
+  confirmed: number
+  /** Mirrors tie_winner(): set once a bye exists or every leg is confirmed. */
+  winner: string | null
+  /** True when the winner went through on penalties. */
+  onPenalties: boolean
+}
+
+/**
+ * Mirrors check_playoff_score(): does this score (from team_a's side) leave the
+ * final or the aggregate level, so the shootout winner has to be recorded?
+ */
+export function needsShootout(match: Match, matches: Match[], scoreA: number, scoreB: number): boolean {
+  if (match.phase !== 'playoff') return false
+  if (isFinalRound(matches, match.round)) return scoreA === scoreB
+  const other = tieLegs(matches, match.round, match.slot).find((m) => m.leg !== match.leg)
+  if (other?.status !== 'confirmed') return false
+  return (other.score_a ?? 0) + scoreA === (other.score_b ?? 0) + scoreB
+}
+
+export function tieResult(legs: Match[]): TieResult {
+  const bye = legs.find((m) => m.status === 'bye')
+  const done = legs.filter((m) => m.status === 'confirmed')
+  const aggA = done.reduce((sum, m) => sum + (m.score_a ?? 0), 0)
+  const aggB = done.reduce((sum, m) => sum + (m.score_b ?? 0), 0)
+  let winner: string | null = bye?.winner_id ?? null
+  let onPenalties = false
+  if (!bye && legs.length > 0 && done.length === legs.length) {
+    if (aggA !== aggB) winner = aggA > aggB ? legs[0].team_a : legs[0].team_b
+    else {
+      winner = done.find((m) => m.shootout_winner)?.shootout_winner ?? null
+      onPenalties = winner !== null
+    }
+  }
+  return { aggA, aggB, confirmed: done.length, winner, onPenalties }
 }
 
 export function LeagueProvider({ children }: { children: ReactNode }) {
@@ -209,9 +274,7 @@ export function LeagueProvider({ children }: { children: ReactNode }) {
             (m) => m.status === 'pending' && m.submitted_by === myTeamId,
           )
         : undefined,
-      schedule: matches
-        .filter((m) => m.phase === 'league')
-        .sort((a, b) => (a.round ?? 0) - (b.round ?? 0) || (a.slot ?? 0) - (b.slot ?? 0)),
+      schedule: matches.filter((m) => m.phase === 'league').sort(bySchedule),
       pendingForMe: myTeamId
         ? matches.filter(
             (m) => m.status === 'pending' && m.submitted_by !== myTeamId &&

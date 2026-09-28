@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useLeague } from '../lib/league'
+import { bySchedule, fixtureLabel, tieLegs, useLeague } from '../lib/league'
 import { cancelSubmission } from '../lib/actions'
 import { useToast } from './Toast'
 import { haptic, timeAgo } from '../lib/format'
@@ -22,14 +22,16 @@ export function NextMatch() {
   const inPlayoffs = settings?.phase === 'playoffs' || settings?.phase === 'complete'
 
   // In the playoffs the bracket supplies the fixture instead of the schedule.
+  // A second leg only comes up once the first is confirmed.
   const playoffFixture = useMemo(() => {
     if (!myTeam || !inPlayoffs) return undefined
-    return league.matches.find(
+    return [...league.matches].sort(bySchedule).find(
       (m) =>
         m.phase === 'playoff' &&
         (m.status === 'scheduled' || m.status === 'disputed') &&
         m.team_a !== null && m.team_b !== null &&
-        (m.team_a === myTeam.id || m.team_b === myTeam.id),
+        (m.team_a === myTeam.id || m.team_b === myTeam.id) &&
+        (m.leg === 1 || tieLegs(league.matches, m.round, m.slot)[0]?.status === 'confirmed'),
     )
   }, [myTeam, league.matches, inPlayoffs])
 
@@ -115,6 +117,7 @@ export function NextMatch() {
   const mineFirst = fixture.team_a === myTeam.id
   const opponent = league.teamById(mineFirst ? fixture.team_b : fixture.team_a)
   const roster = opponent ? league.playersFor(opponent.id) : []
+  const atHome = fixture.home_team === myTeam.id
 
   return (
     <section className="section">
@@ -126,9 +129,17 @@ export function NextMatch() {
             <div className="t-caption dim">{roster.join(' & ')}</div>
           </div>
           <span className="pill" style={{ flexShrink: 0 }}>
-            {inPlayoffs ? 'Playoff' : `Round ${fixture.round}`}
+            {fixtureLabel(fixture, league.matches)}
           </span>
         </div>
+
+        {fixture.home_team && (
+          <p className="t-foot muted" style={{ margin: '0 0 var(--s-4)' }}>
+            {atHome
+              ? "You're home — you pick your team and the console."
+              : `Away — ${opponent?.name ?? 'they'} pick their team and the console.`}
+          </p>
+        )}
 
         {fixture.status === 'disputed' && (
           <p className="field__hint field__hint--bad" style={{ padding: 0, marginBottom: 'var(--s-3)' }}>
@@ -160,7 +171,7 @@ function LastResult({ match, teamId }: { match: Match; teamId: string }) {
   return (
     <div className="spread t-foot" style={{ padding: 'var(--s-3) var(--s-1) 0' }}>
       <span className="dim">
-        Last time out · {won ? 'beat' : 'lost to'} {other?.name ?? 'them'}
+        Last time out · {won ? 'beat' : my === their ? 'drew with' : 'lost to'} {other?.name ?? 'them'}
       </span>
       <span className="num" style={{ fontWeight: 600, color: won ? 'var(--accent)' : 'var(--text-3)' }}>
         {my}–{their}

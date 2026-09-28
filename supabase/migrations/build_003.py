@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """
-Generates 002_accounts_and_chat.sql from schema.sql, so the migration and the
+Generates 003_league_rules.sql from schema.sql, so the latest migration and the
 fresh-install schema can never describe different databases. Re-run this after
-editing schema.sql:  python3 supabase/migrations/build_002.py
+editing schema.sql:  python3 supabase/migrations/build_003.py
+
+002_accounts_and_chat.sql is frozen: it was generated the same way, but its
+structure section predates 003, so regenerating it now would break it.
 """
 import pathlib, re, sys
 
@@ -20,10 +23,10 @@ body = re.sub(
     lambda m: f'drop policy if exists {m.group(1)} on {m.group(2)};\ncreate policy {m.group(1)} on {m.group(2)}',
     body, flags=re.M)
 
-header = pathlib.Path(root / 'supabase' / 'migrations' / '_002_head.sql').read_text()
-footer = pathlib.Path(root / 'supabase' / 'migrations' / '_002_tail.sql').read_text()
+header = pathlib.Path(root / 'supabase' / 'migrations' / '_003_head.sql').read_text()
+footer = pathlib.Path(root / 'supabase' / 'migrations' / '_003_tail.sql').read_text()
 
 out = header + '\n' + body + '\n' + footer
-target = root / 'supabase' / 'migrations' / '002_accounts_and_chat.sql'
+target = root / 'supabase' / 'migrations' / '003_league_rules.sql'
 target.write_text(out)
 print(f'wrote {target.relative_to(root)} — {len(out.splitlines())} lines')

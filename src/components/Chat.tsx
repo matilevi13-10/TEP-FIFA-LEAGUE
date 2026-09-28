@@ -162,7 +162,12 @@ function Bubble({ message, mine }: { message: Message; mine: boolean }) {
           <div className="msg__score">{message.body}</div>
         )}
         <div className="t-caption dim" style={{ marginTop: 'var(--s-1)' }}>
-          {winner ? `${winner} win` : 'Result'} · {timeAgo(message.created_at)}
+          {winner
+            ? `${winner} win`
+            : match?.shootout_winner
+              ? `Tie · ${league.teamById(match.shootout_winner)?.name ?? 'they'} win on penalties`
+              : match && match.score_a === match.score_b ? 'Tie' : 'Result'}
+          {' · '}{timeAgo(message.created_at)}
         </div>
       </div>
     )

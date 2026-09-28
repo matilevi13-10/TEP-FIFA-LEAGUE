@@ -39,9 +39,13 @@ export const submitLeagueResult = (matchId: string, myScore: number, opponentSco
     p_match_id: matchId, p_my_score: myScore, p_opp_score: opponentScore,
   })
 
-export const submitPlayoffResult = (matchId: string, myScore: number, opponentScore: number) =>
+/** A shootout winner is only needed when the score leaves the final or the aggregate level. */
+export const submitPlayoffResult = (
+  matchId: string, myScore: number, opponentScore: number, shootoutWinner: string | null = null,
+) =>
   call<string>('submit_playoff_result', {
     p_match_id: matchId, p_my_score: myScore, p_opp_score: opponentScore,
+    p_shootout_winner: shootoutWinner,
   })
 
 export const confirmMatch = (matchId: string) => call('confirm_match', { p_match_id: matchId })
@@ -89,12 +93,16 @@ export const adminSetSeasonStarted = (started: boolean) =>
 
 export const adminRegenerateSchedule = () => call<number>('admin_regenerate_schedule')
 
-export const adminStartPlayoffs = (size: number) => call('admin_start_playoffs', { p_size: size })
+/** Seeds every active team; spare bracket places become byes for the top seeds. */
+export const adminStartPlayoffs = () => call('admin_start_playoffs')
 export const adminResetPlayoffs = () => call('admin_reset_playoffs')
 
-export const adminResolveMatch = (matchId: string, scoreA: number, scoreB: number, note?: string) =>
+export const adminResolveMatch = (
+  matchId: string, scoreA: number, scoreB: number, note?: string, shootoutWinner: string | null = null,
+) =>
   call('admin_resolve_match', {
     p_match_id: matchId, p_score_a: scoreA, p_score_b: scoreB, p_note: note ?? null,
+    p_shootout_winner: shootoutWinner,
   })
 
 export const adminVoidMatch = (matchId: string, note?: string) =>
