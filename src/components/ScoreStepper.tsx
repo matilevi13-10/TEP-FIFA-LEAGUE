@@ -6,13 +6,19 @@ interface Props {
   value: number
   onChange: (next: number) => void
   accent?: boolean
+  /** Which column of the scoreboard grid this side sits in. */
+  side: 'left' | 'right'
 }
 
 /**
- * Big thumb targets with the number itself typeable, so 1-0 is two taps and
- * 7-3 is still quick.
+ * One side of the scoreboard. Big thumb targets with the number itself
+ * typeable, so 1-0 is two taps and 7-3 is still quick.
+ *
+ * Renders with `display: contents` so its name, number and buttons land on
+ * the scoreboard's shared rows — both numbers always line up with the dash
+ * between them, however long either team name is.
  */
-export function ScoreStepper({ label, sub, value, onChange, accent }: Props) {
+export function ScoreStepper({ label, sub, value, onChange, accent, side }: Props) {
   const set = (next: number) => {
     const clamped = Math.max(0, Math.min(99, next))
     if (clamped !== value) haptic(8)
@@ -20,12 +26,10 @@ export function ScoreStepper({ label, sub, value, onChange, accent }: Props) {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--s-3)', flex: 1, minWidth: 0 }}>
-      <div style={{ textAlign: 'center', minWidth: 0, width: '100%', minHeight: 40 }}>
-        <div className="t-headline truncate" style={{ color: accent ? 'var(--accent)' : 'var(--text)' }}>
-          {label}
-        </div>
-        {sub && <div className="t-caption dim" style={{ marginTop: '0.125rem' }}>{sub}</div>}
+    <div className={`stepper stepper--${side}${accent ? ' stepper--accent' : ''}`}>
+      <div className="stepper__label">
+        <div className="stepper__name truncate">{label}</div>
+        {sub && <div className="stepper__sub">{sub}</div>}
       </div>
 
       <input
@@ -38,25 +42,16 @@ export function ScoreStepper({ label, sub, value, onChange, accent }: Props) {
           const digits = event.target.value.replace(/\D/g, '').slice(0, 2)
           onChange(digits === '' ? 0 : Math.min(99, Number(digits)))
         }}
-        className="num"
-        style={{
-          width: '100%', maxWidth: '8.25rem', height: '6rem', textAlign: 'center',
-          fontSize: '3.25rem', fontWeight: 700, lineHeight: 1, letterSpacing: '-0.035em',
-          background: accent ? 'var(--accent-fill)' : 'var(--fill-1)',
-          border: `1px solid ${accent ? 'var(--accent-line)' : 'var(--sep)'}`,
-          borderRadius: 'var(--r-lg)', color: 'var(--text)',
-        }}
+        className="stepper__value num"
       />
 
-      <div className="row" style={{ gap: 'var(--s-2)' }}>
-        <button type="button" className="btn btn--ghost" aria-label={`${label} minus one`}
-          onClick={() => set(value - 1)}
-          style={{ width: '3.5rem', minHeight: '3rem', padding: 0, fontSize: '1.375rem' }}>
+      <div className="stepper__buttons">
+        <button type="button" className="stepper__btn" aria-label={`${label} minus one`}
+          disabled={value === 0} onClick={() => set(value - 1)}>
           −
         </button>
-        <button type="button" className="btn btn--ghost" aria-label={`${label} plus one`}
-          onClick={() => set(value + 1)}
-          style={{ width: '3.5rem', minHeight: '3rem', padding: 0, fontSize: '1.375rem' }}>
+        <button type="button" className="stepper__btn" aria-label={`${label} plus one`}
+          onClick={() => set(value + 1)}>
           +
         </button>
       </div>

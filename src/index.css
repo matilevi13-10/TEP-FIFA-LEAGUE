@@ -864,12 +864,115 @@ select.input {
 
 /* ── Score sheet ────────────────────────────────────────────────────────── */
 
-.score-sheet { max-height: min(86vh, 44rem); }
+.score-sheet { max-height: min(88vh, 44rem); max-height: min(88dvh, 44rem); }
 .score-sheet__body {
-  padding: var(--s-4) var(--s-4) var(--s-5);
+  padding: var(--s-5) var(--s-4) calc(var(--s-5));
   overflow-y: auto; overscroll-behavior: contain;
   touch-action: pan-y;
 }
+/* On a big screen it's a modal task, not a thumb sheet: centre it. */
 @media (min-width: 64rem) {
-  .score-sheet { width: 26rem; height: auto; }
+  .sheet.score-sheet {
+    inset: 0; margin: auto;
+    width: 27rem; height: fit-content;
+  }
+}
+
+/* Two sides sharing rows, so both numbers sit level with the dash no matter
+   how long either name runs. */
+.scoreboard {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-rows: auto auto auto;
+  column-gap: var(--s-3); row-gap: var(--s-3);
+  justify-items: center; align-items: center;
+}
+.stepper { display: contents; }
+.stepper--left > * { grid-column: 1; }
+.stepper--right > * { grid-column: 3; }
+.stepper__label { grid-row: 1; width: 100%; text-align: center; min-width: 0; align-self: end; }
+.stepper__name { font-size: 1.0625rem; font-weight: 600; letter-spacing: -0.02em; }
+.stepper--accent .stepper__name { color: var(--accent); }
+.stepper__sub {
+  margin-top: 0.125rem; font-size: 0.6875rem; font-weight: 600;
+  letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-3);
+}
+.stepper__value {
+  grid-row: 2;
+  width: 100%; max-width: 8rem; height: 6.25rem;
+  text-align: center; font-size: 3.75rem; font-weight: 700; line-height: 1;
+  letter-spacing: -0.04em; font-variant-numeric: tabular-nums;
+  background: var(--fill-1); color: var(--text);
+  border: 1px solid var(--sep); border-radius: var(--r-xl);
+  box-shadow: var(--edge);
+  caret-color: var(--accent);
+  transition: border-color var(--dur-press) var(--ease-out),
+              box-shadow var(--dur-press) var(--ease-out);
+}
+.stepper--accent .stepper__value {
+  background: var(--accent-fill); border-color: var(--accent-line);
+  box-shadow: var(--edge), var(--sh-accent);
+}
+.stepper__value:focus-visible, .stepper__value:focus {
+  outline: none; border-color: var(--accent);
+  box-shadow: var(--edge), 0 0 0 4px rgba(181,168,255,0.18);
+}
+.stepper__buttons {
+  grid-row: 3; display: flex; gap: var(--s-2);
+  width: 100%; max-width: 8rem;
+}
+.stepper__btn {
+  flex: 1; height: 2.75rem;
+  display: grid; place-items: center;
+  font-size: 1.375rem; font-weight: 500; line-height: 1;
+  background: var(--fill-1); border: 1px solid var(--sep);
+  border-radius: var(--r-md); box-shadow: var(--edge);
+  user-select: none; -webkit-user-select: none;
+  transition: transform var(--dur-press) var(--ease-out),
+              background var(--dur-press) var(--ease-out),
+              opacity var(--dur-press) var(--ease-out);
+}
+.stepper__btn:hover:not(:disabled) { background: var(--fill-2); }
+.stepper__btn:active:not(:disabled) { transform: scale(0.94); background: var(--fill-3); }
+.stepper__btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.scoreboard__dash {
+  grid-column: 2; grid-row: 2;
+  font-size: 1.75rem; font-weight: 500; color: var(--text-4);
+}
+
+/* What the score means, said back before you commit to it. */
+.score-verdict {
+  display: flex; align-items: center; gap: var(--s-3);
+  margin: var(--s-5) 0 var(--s-4);
+  padding: var(--s-3) var(--s-4);
+  border-radius: var(--r-md);
+  background: var(--fill-1); border: 1px solid var(--sep);
+  min-height: 3.25rem;
+}
+.score-verdict--win { background: var(--accent-fill); border-color: var(--accent-line); }
+.score-verdict--pens { flex-direction: column; align-items: stretch; text-align: center; }
+.score-verdict__tag {
+  flex-shrink: 0;
+  padding: 0.1875rem var(--s-2); border-radius: var(--r-full);
+  font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+  background: var(--fill-2); color: var(--text-2);
+}
+.score-verdict--win .score-verdict__tag { background: var(--accent); color: var(--accent-ink); }
+.score-verdict--loss .score-verdict__tag { background: var(--danger-fill); color: var(--danger); }
+
+.segmented {
+  display: flex; gap: 2px; padding: 2px;
+  border-radius: var(--r-sm); background: var(--fill-1); border: 1px solid var(--sep);
+}
+.segmented__option {
+  flex: 1; min-width: 0; min-height: 2.5rem; padding: 0 var(--s-3);
+  display: flex; align-items: center; justify-content: center;
+  border-radius: calc(var(--r-sm) - 2px);
+  font-size: 0.9375rem; font-weight: 590; color: var(--text-2);
+  transition: background var(--dur-press) var(--ease-out),
+              color var(--dur-press) var(--ease-out);
+}
+.segmented__option:hover:not(.segmented__option--on) { color: var(--text); }
+.segmented__option--on {
+  background: var(--accent); color: var(--accent-ink); box-shadow: var(--sh-1);
 }

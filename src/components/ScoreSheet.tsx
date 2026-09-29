@@ -1,4 +1,5 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { fixtureLabel, isFinalRound, needsShootout, tieLegs, useLeague } from '../lib/league'
 import { submitLeagueResult, submitPlayoffResult } from '../lib/actions'
 import { ScoreStepper } from './ScoreStepper'
@@ -71,16 +72,34 @@ export function ScoreSheet({
     }
   }
 
-  return (
+  // Close on Escape and hold the page still underneath while the sheet is up.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', onKey)
+    const overflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => {
+      window.removeEventListener('keydown', onKey)
+      document.body.style.overflow = overflow
+    }
+  }, [onClose])
+
+  const outcome = mine > theirs ? 'win' : mine < theirs ? 'loss' : 'draw'
+  const verdict = outcome === 'win' ? 'Win' : outcome === 'loss' ? 'Loss' : playoff ? 'Level' : 'Draw'
+
+  // Portalled to <body>: the page animates in with a transform, which would
+  // otherwise make it the containing block for this fixed overlay and trap it
+  // under the tab bar.
+  return createPortal(
     <>
       <div className="scrim" onClick={onClose} />
-      <div className="sheet score-sheet" role="dialog" aria-label="Submit score" {...drag.surface}>
+      <div className="sheet score-sheet" role="dialog" aria-modal="true" aria-label="Submit score" {...drag.surface}>
         <div {...drag.handle}>
           <div className="sheet__grabber" aria-hidden />
           <div className="sheet__head">
             <div style={{ minWidth: 0 }}>
-              <div className="t-headline truncate">vs {opponent?.name ?? 'Opponent'}</div>
               <div className="t-caption dim">{fixtureLabel(fixture, league.matches)}</div>
+              <div className="t-headline truncate">Submit score</div>
             </div>
             <button
               className="btn btn--ghost btn--sm btn--icon"
@@ -94,59 +113,57 @@ export function ScoreSheet({
         </div>
 
         <div className="score-sheet__body">
-          <div className="row" style={{ alignItems: 'flex-start', gap: 'var(--s-4)' }}>
-            <ScoreStepper label={myTeam.name} sub="You" value={mine} onChange={setMine} accent />
-            <div className="dim" style={{ paddingTop: 90, fontSize: '1.25rem', fontWeight: 500 }}>–</div>
+          <div className="scoreboard">
+            <ScoreStepper side="left" label={myTeam.name} sub="You" value={mine} onChange={setMine} accent />
+            <div className="scoreboard__dash" aria-hidden>–</div>
             <ScoreStepper
-              label={opponent?.name ?? 'Opponent'} sub="Them" value={theirs} onChange={setTheirs}
+              side="right" label={opponent?.name ?? 'Opponent'} sub="Them" value={theirs} onChange={setTheirs}
             />
           </div>
 
-          <div
-            className="center"
-            style={{ minHeight: '2.5rem', marginTop: 'var(--s-4)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          >
-            {shootout ? (
-              <div style={{ width: '100%' }}>
-                <div className="t-foot muted" style={{ marginBottom: 'var(--s-2)' }}>
-                  {final ? `Level at ${mine}–${theirs}` : `Level at ${aggMine}–${aggTheirs} on aggregate`}
-                  {' '}— the score stays a tie. Who won on penalties?
-                </div>
-                <div className="row" style={{ gap: 'var(--s-2)' }}>
-                  {[myTeam, opponent].map((team) => team && (
-                    <button key={team.id} type="button"
-                      className={`btn btn--sm ${pens === team.id ? 'btn--primary' : 'btn--ghost'}`}
-                      style={{ flex: 1 }} onClick={() => { haptic(); setPens(team.id) }}>
-                      {team.id === myTeam.id ? 'We did' : team.name}
-                    </button>
-                  ))}
-                </div>
+          {shootout ? (
+            <div className="score-verdict score-verdict--pens">
+              <div className="t-foot muted">
+                {final ? `Level at ${mine}–${theirs}` : `Level at ${aggMine}–${aggTheirs} on aggregate`}
+                {' '}— the score stays a tie. Who won on penalties?
               </div>
-            ) : (
+              <div className="segmented" role="radiogroup" aria-label="Penalty shootout winner">
+                {[myTeam, opponent].map((team) => team && (
+                  <button key={team.id} type="button" role="radio" aria-checked={pens === team.id}
+                    className={`segmented__option${pens === team.id ? ' segmented__option--on' : ''}`}
+                    onClick={() => { haptic(); setPens(team.id) }}>
+                    <span className="truncate">{team.id === myTeam.id ? 'We did' : team.name}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className={`score-verdict score-verdict--${outcome}`} aria-live="polite">
+              <span className="score-verdict__tag">{verdict}</span>
               <span className="t-foot muted">
-                {mine > theirs
+                {outcome === 'win'
                   ? `You win ${mine}–${theirs}.`
-                  : mine < theirs
+                  : outcome === 'loss'
                     ? `${them} win ${theirs}–${mine}.`
                     : `A ${mine}–${theirs} tie${playoff ? '' : ' — a point each'}.`}
                 {earlier && ` ${aggMine > aggTheirs ? 'You go' : `${them} go`} through ${Math.max(aggMine, aggTheirs)}–${Math.min(aggMine, aggTheirs)} on aggregate.`}
-                {` ${opponent?.name ?? 'Your opponent'} confirms it.`}
               </span>
-            )}
-          </div>
+            </div>
+          )}
 
           <button
             className="btn btn--primary btn--block"
             disabled={busy || blocked}
             onClick={send}
           >
-            {busy ? 'Sending…' : 'Submit result'}
+            {busy ? 'Sending…' : blocked ? 'Pick the shootout winner' : `Submit ${mine}–${theirs}`}
           </button>
           <p className="t-caption dim center" style={{ margin: 'var(--s-3) 0 0' }}>
             Nothing moves the table until {opponent?.name ?? 'your opponent'} confirms.
           </p>
         </div>
       </div>
-    </>
+    </>,
+    document.body,
   )
 }
